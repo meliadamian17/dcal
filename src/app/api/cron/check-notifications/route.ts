@@ -12,7 +12,6 @@ export async function GET(request: Request) {
   // Vercel automatically adds this header. For local testing, you can bypass or simulate it.
   const authHeader = request.headers.get("authorization");
   if (
-    process.env.NODE_ENV === "production" &&
     authHeader !== `Bearer ${process.env.CRON_SECRET}`
   ) {
     // Alternatively check for CRON_SECRET if not using standard Vercel cron auth protection
