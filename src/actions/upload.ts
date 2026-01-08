@@ -7,9 +7,9 @@ import { revalidatePath } from "next/cache";
 
 interface YamlAssignment {
   name: string;
-  description: string;
+  description?: string;
   due_date: string;
-  due_time: string;
+  due_time?: string | null;
 }
 
 interface YamlStructure {
@@ -26,14 +26,16 @@ export async function processYamlUpload(fileContent: string) {
     }
 
     const courseName = data.course;
+    let successCount = 0;
 
     for (const assignment of data.assignments) {
-      // Combine date and time
-      const dateTimeString = `${assignment.due_date}T${assignment.due_time}`;
+      // Handle null/undefined due_time by defaulting to 23:59 (end of day)
+      const time = assignment.due_time || "23:59";
+      const dateTimeString = `${assignment.due_date}T${time}`;
       const dueDateTime = new Date(dateTimeString);
 
       if (isNaN(dueDateTime.getTime())) {
-        console.error(`Invalid date for assignment: ${assignment.name}`);
+        console.error(`Invalid date for assignment: ${assignment.name} (${dateTimeString})`);
         continue; // Skip invalid dates
       }
 
@@ -42,25 +44,26 @@ export async function processYamlUpload(fileContent: string) {
         .values({
           courseName,
           assignmentName: assignment.name,
-          description: assignment.description,
+          description: assignment.description || "",
           dueDateTime,
           notificationSent: false,
         })
         .onConflictDoUpdate({
           target: [assignments.courseName, assignments.assignmentName],
           set: {
-            description: assignment.description,
+            description: assignment.description || "",
             dueDateTime,
-            notificationSent: false, // Reset notification if updated? Maybe.
+            notificationSent: false,
           },
         });
+      
+      successCount++;
     }
 
     revalidatePath("/");
-    return { success: true };
+    return { success: true, count: successCount };
   } catch (error) {
     console.error("Error processing YAML:", error);
     return { success: false, error: "Failed to process file" };
   }
 }
-

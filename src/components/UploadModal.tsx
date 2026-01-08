@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, X, Check, AlertCircle, FileText } from "lucide-react";
+import { Upload, Check, AlertCircle, FileCode2, X } from "lucide-react";
 import { processYamlUpload } from "@/actions/upload";
 
 interface UploadModalProps {
@@ -33,7 +33,7 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
         } else {
           errorCount++;
         }
-      } catch (e) {
+      } catch {
         errorCount++;
       }
     }
@@ -41,15 +41,16 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
     setIsProcessing(false);
     if (errorCount === 0 && successCount > 0) {
       setStatus("success");
-      setMessage(`Successfully processed ${successCount} file(s).`);
+      setMessage(`Successfully imported ${successCount} file(s)`);
       setTimeout(() => {
         onClose();
         setStatus("idle");
-      }, 2000);
+        window.location.reload();
+      }, 1500);
     } else {
       setStatus("error");
       setMessage(
-        `Processed ${successCount} files. Failed: ${errorCount}. Check format.`
+        `Imported ${successCount} files. Failed: ${errorCount}. Check format.`
       );
     }
   }, [onClose]);
@@ -62,6 +63,14 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
     },
   });
 
+  const handleClose = () => {
+    onClose();
+    setTimeout(() => {
+      setStatus("idle");
+      setMessage("");
+    }, 200);
+  };
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -69,92 +78,212 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
-          onClick={onClose}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 50,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            background: 'rgba(0,0,0,0.85)',
+            backdropFilter: 'blur(20px)'
+          }}
+          onClick={handleClose}
         >
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
+            initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="glass-panel p-8 rounded-2xl w-full max-w-xl relative"
+            exit={{ scale: 0.95, opacity: 0 }}
+            style={{
+              background: 'rgba(15, 15, 20, 0.98)',
+              borderRadius: '20px',
+              width: '100%',
+              maxWidth: '520px',
+              position: 'relative',
+              border: '1px solid rgba(255,255,255,0.1)',
+              overflow: 'hidden'
+            }}
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              onClick={onClose}
-              className="absolute top-4 right-4 text-gray-400 hover:text-white"
-            >
-              <X className="w-6 h-6" />
-            </button>
-
-            <h2 className="text-2xl font-bold mb-6 text-center neon-text-blue">
-              Upload Course Data
-            </h2>
-
-            <div
-              {...getRootProps()}
-              className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all duration-300 ${
-                isDragActive
-                  ? "border-cyan-500 bg-cyan-500/10"
-                  : "border-gray-600 hover:border-gray-400 hover:bg-white/5"
-              }`}
-            >
-              <input {...getInputProps()} />
-              <div className="flex flex-col items-center space-y-4">
-                <div className="p-4 rounded-full bg-white/5">
-                  <Upload className="w-8 h-8 text-cyan-400" />
+            {/* Gradient top border */}
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '3px',
+              background: 'linear-gradient(to right, #22d3ee, transparent, #a855f7)'
+            }} />
+            
+            <div style={{ padding: '24px' }}>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px' }}>
+                <div>
+                  <h2 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', margin: 0 }}>Import Course Data</h2>
+                  <p style={{ color: '#71717a', fontSize: '14px', marginTop: '4px' }}>Upload your YAML files to sync assignments</p>
                 </div>
-                {isDragActive ? (
-                  <p className="text-cyan-400 font-medium">Drop files here...</p>
-                ) : (
-                  <div className="space-y-1">
-                    <p className="text-lg font-medium text-white">
-                      Drag & drop YAML files
-                    </p>
-                    <p className="text-sm text-gray-400">
-                      or click to browse
-                    </p>
-                  </div>
-                )}
+                <button
+                  onClick={handleClose}
+                  style={{
+                    padding: '8px',
+                    borderRadius: '8px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#a1a1aa',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <X style={{ width: '20px', height: '20px' }} />
+                </button>
               </div>
-            </div>
 
-            {/* Status Display */}
-            {isProcessing && (
-              <div className="mt-6 flex items-center justify-center space-x-2 text-cyan-400">
-                <div className="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-                <span>Processing...</span>
-              </div>
-            )}
-
-            {!isProcessing && status !== "idle" && (
+              {/* Dropzone */}
               <div
-                className={`mt-6 p-4 rounded-lg flex items-center space-x-3 ${
-                  status === "success"
-                    ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                    : "bg-red-500/20 text-red-400 border border-red-500/30"
-                }`}
+                {...getRootProps()}
+                style={{
+                  border: `2px dashed ${isDragActive ? '#22d3ee' : 'rgba(255,255,255,0.1)'}`,
+                  borderRadius: '16px',
+                  padding: '40px',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  background: isDragActive ? 'rgba(34,211,238,0.05)' : 'transparent',
+                  transition: 'all 0.2s'
+                }}
               >
-                {status === "success" ? (
-                  <Check className="w-5 h-5" />
-                ) : (
-                  <AlertCircle className="w-5 h-5" />
-                )}
-                <span>{message}</span>
+                <input {...getInputProps()} />
+                
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+                  <div style={{
+                    padding: '16px',
+                    borderRadius: '16px',
+                    background: isDragActive ? 'rgba(34,211,238,0.2)' : 'rgba(255,255,255,0.05)'
+                  }}>
+                    <Upload style={{
+                      width: '32px',
+                      height: '32px',
+                      color: isDragActive ? '#22d3ee' : '#a1a1aa'
+                    }} />
+                  </div>
+                  
+                  {isDragActive ? (
+                    <p style={{ color: '#22d3ee', fontWeight: 600, margin: 0 }}>Drop files here...</p>
+                  ) : (
+                    <div>
+                      <p style={{ fontSize: '18px', fontWeight: 600, color: '#fff', margin: 0 }}>
+                        Drag & drop YAML files
+                      </p>
+                      <p style={{ fontSize: '14px', color: '#71717a', marginTop: '4px' }}>
+                        or click to browse your files
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
 
-            <div className="mt-8">
-              <h4 className="text-sm font-medium text-gray-400 mb-2">
-                Expected YAML Format:
-              </h4>
-              <pre className="bg-black/50 p-4 rounded-lg text-xs text-gray-300 overflow-x-auto border border-white/5 font-mono">
+              {/* Status Display */}
+              <AnimatePresence mode="wait">
+                {isProcessing && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    style={{
+                      marginTop: '16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '12px',
+                      color: '#22d3ee',
+                      padding: '12px'
+                    }}
+                  >
+                    <div style={{
+                      width: '20px',
+                      height: '20px',
+                      border: '2px solid #22d3ee',
+                      borderTopColor: 'transparent',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite'
+                    }} />
+                    <span style={{ fontWeight: 500 }}>Processing files...</span>
+                  </motion.div>
+                )}
+
+                {!isProcessing && status !== "idle" && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    style={{
+                      marginTop: '16px',
+                      padding: '16px',
+                      borderRadius: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      background: status === 'success' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                      color: status === 'success' ? '#10b981' : '#ef4444',
+                      border: `1px solid ${status === 'success' ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`
+                    }}
+                  >
+                    {status === "success" ? (
+                      <Check style={{ width: '20px', height: '20px', flexShrink: 0 }} />
+                    ) : (
+                      <AlertCircle style={{ width: '20px', height: '20px', flexShrink: 0 }} />
+                    )}
+                    <span style={{ fontWeight: 500 }}>{message}</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Format Guide */}
+              <div style={{ marginTop: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#71717a', marginBottom: '12px' }}>
+                  <FileCode2 style={{ width: '16px', height: '16px' }} />
+                  <span style={{ fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Expected Format</span>
+                </div>
+                <div style={{
+                  background: 'rgba(0,0,0,0.4)',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  overflowX: 'auto'
+                }}>
+                  <pre style={{
+                    fontSize: '12px',
+                    color: '#a1a1aa',
+                    fontFamily: 'monospace',
+                    lineHeight: 1.6,
+                    margin: 0
+                  }}>
 {`course: "CS 405"
 assignments:
   - name: "Project 1"
-    description: "Details..."
+    description: "Build a REST API"
     due_date: "2026-02-15"
     due_time: "14:00"`}
-              </pre>
+                  </pre>
+                </div>
+              </div>
+
+              {/* Close Button */}
+              <button
+                onClick={handleClose}
+                style={{
+                  marginTop: '24px',
+                  width: '100%',
+                  padding: '14px',
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '12px',
+                  color: '#fff',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
             </div>
           </motion.div>
         </motion.div>
@@ -162,4 +291,3 @@ assignments:
     </AnimatePresence>
   );
 }
-

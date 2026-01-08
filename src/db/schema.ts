@@ -9,6 +9,7 @@ export const assignments = pgTable(
     description: text("description"),
     dueDateTime: timestamp("due_date_time").notNull(),
     notificationSent: boolean("notification_sent").default(false).notNull(),
+    submitted: boolean("submitted").default(false).notNull(),
   },
   (t) => [
     // Create a unique constraint on courseName and assignmentName to handle deduplication/upserts

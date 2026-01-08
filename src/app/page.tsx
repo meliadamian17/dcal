@@ -1,11 +1,43 @@
 import { Suspense } from "react";
-import { getAssignments } from "@/lib/data";
+import { getAllAssignments } from "@/lib/data";
 import { CalendarView } from "@/components/CalendarView";
-import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, parseISO } from "date-fns";
+import { parseISO } from "date-fns";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
+
+function LoadingState() {
+  return (
+    <div style={{
+      display: 'flex',
+      minHeight: '100vh',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#050508'
+    }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+        <div style={{ position: 'relative' }}>
+          <div style={{
+            width: '48px',
+            height: '48px',
+            borderRadius: '50%',
+            border: '2px solid rgba(34,211,238,0.2)',
+            borderTopColor: '#22d3ee',
+            animation: 'spin 1s linear infinite'
+          }} />
+        </div>
+        <p style={{ color: '#71717a', fontSize: '14px', fontWeight: 500 }}>Loading your schedule...</p>
+      </div>
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
+  );
+}
 
 export default async function DashboardPage({
   searchParams,
@@ -17,44 +49,25 @@ export default async function DashboardPage({
     redirect("/login");
   }
 
-  // Await searchParams as required in Next.js 15/16 for async handling
   const params = await searchParams;
   const monthParam = params.month as string;
 
   let currentDate = new Date();
   if (monthParam) {
     const parsed = parseISO(monthParam);
-    if (!isNaN(parsed.getTime())) {
+    if (!Number.isNaN(parsed.getTime())) {
       currentDate = parsed;
     }
   }
 
-  // Calculate range to fetch (full calendar grid scope)
-  const monthStart = startOfMonth(currentDate);
-  const monthEnd = endOfMonth(currentDate);
-  const gridStart = startOfWeek(monthStart);
-  const gridEnd = endOfWeek(monthEnd);
-
-  const assignments = await getAssignments(gridStart, gridEnd);
+  // Fetch all assignments - calendar will filter by day, list shows all
+  const assignments = await getAllAssignments();
 
   return (
-    <main className="min-h-screen relative overflow-hidden pb-10">
-      {/* Background Elements */}
-      <div className="bg-orb w-[600px] h-[600px] bg-purple-900/30 top-[-200px] left-[20%] blur-[120px]" />
-      <div className="bg-orb w-[500px] h-[500px] bg-blue-900/30 bottom-[-100px] right-[10%] blur-[100px]" />
-
-      <div className="relative z-10 pt-8">
-        <h1 className="text-4xl md:text-5xl font-bold text-center mb-2 neon-text-blue tracking-tighter">
-          ACADEMIC <span className="text-white">LINK</span>
-        </h1>
-        <p className="text-center text-gray-400 mb-8 font-light tracking-widest text-sm uppercase">
-          Assignment Tracking System
-        </p>
-        
-        <Suspense fallback={<div className="text-center text-cyan-500 mt-20">Loading Grid...</div>}>
-          <CalendarView currentDate={currentDate} assignments={assignments} />
-        </Suspense>
-      </div>
+    <main style={{ minHeight: '100vh', position: 'relative' }}>
+      <Suspense fallback={<LoadingState />}>
+        <CalendarView currentDate={currentDate} assignments={assignments} />
+      </Suspense>
     </main>
   );
 }
