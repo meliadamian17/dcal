@@ -20,3 +20,15 @@ export const assignments = pgTable(
 export type Assignment = typeof assignments.$inferSelect;
 export type NewAssignment = typeof assignments.$inferInsert;
 
+export const events = pgTable("events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  dateTime: timestamp("date_time").notNull(),
+  tags: text("tags").array().default([]).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type Event = typeof events.$inferSelect;
+export type NewEvent = typeof events.$inferInsert;
+

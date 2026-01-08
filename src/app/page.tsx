@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { getAllAssignments } from "@/lib/data";
+import { getAllAssignments, getAllEvents } from "@/lib/data";
 import { CalendarView } from "@/components/CalendarView";
 import { parseISO } from "date-fns";
 import { auth } from "@/auth";
@@ -60,13 +60,16 @@ export default async function DashboardPage({
     }
   }
 
-  // Fetch all assignments - calendar will filter by day, list shows all
-  const assignments = await getAllAssignments();
+  // Fetch all assignments and events
+  const [assignments, events] = await Promise.all([
+    getAllAssignments(),
+    getAllEvents(),
+  ]);
 
   return (
     <main style={{ minHeight: '100vh', position: 'relative' }}>
       <Suspense fallback={<LoadingState />}>
-        <CalendarView currentDate={currentDate} assignments={assignments} />
+        <CalendarView currentDate={currentDate} assignments={assignments} events={events} />
       </Suspense>
     </main>
   );

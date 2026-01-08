@@ -23,24 +23,50 @@ import {
   Clock, 
   LogOut,
   X,
-  Check
+  Check,
+  Trash2
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Assignment } from "@/db/schema";
+import { Assignment, Event } from "@/db/schema";
 import { UploadModal } from "./UploadModal";
 import { AssignmentList } from "./AssignmentList";
+import { EventList } from "./EventList";
+import { AddItemModal } from "./AddItemModal";
+import { AddEventModal } from "./AddEventModal";
+import { AddAssignmentModal } from "./AddAssignmentModal";
 import { signOut } from "next-auth/react";
-import { toggleAssignmentSubmitted } from "@/actions/assignment";
+import { toggleAssignmentSubmitted, deleteAssignment } from "@/actions/assignment";
 
 interface CalendarViewProps {
   currentDate: Date;
   assignments: Assignment[];
+  events: Event[];
 }
 
-export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
+export function CalendarView({ currentDate, assignments, events }: CalendarViewProps) {
   const router = useRouter();
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [selectedDateForAdd, setSelectedDateForAdd] = useState<Date | null>(null);
+  const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
+  const [isAddEventModalOpen, setIsAddEventModalOpen] = useState(false);
+  const [isAddAssignmentModalOpen, setIsAddAssignmentModalOpen] = useState(false);
+
+  const handleDayDoubleClick = (day: Date) => {
+    setSelectedDateForAdd(day);
+    setIsAddItemModalOpen(true);
+  };
+
+  const handleSelectEvent = () => {
+    setIsAddItemModalOpen(false);
+    setIsAddEventModalOpen(true);
+  };
+
+  const handleSelectAssignment = () => {
+    setIsAddItemModalOpen(false);
+    setIsAddAssignmentModalOpen(true);
+  };
+
   const handleToggleSubmitted = async (assignmentId: string) => {
     if (selectedAssignment) {
       // Optimistic update for immediate UI feedback
@@ -50,6 +76,11 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
       });
     }
     await toggleAssignmentSubmitted(assignmentId);
+  };
+
+  const handleDeleteAssignment = async (assignmentId: string) => {
+    setSelectedAssignment(null);
+    await deleteAssignment(assignmentId);
   };
 
   // Calendar Logic
@@ -145,6 +176,14 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
             }}>
               <button
                 onClick={handlePrevMonth}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                  e.currentTarget.style.color = '#fff';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = '#a1a1aa';
+                }}
                 style={{ 
                   width: '32px', 
                   height: '32px', 
@@ -155,7 +194,8 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
                   background: 'transparent',
                   border: 'none',
                   color: '#a1a1aa',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
                 }}
               >
                 <ChevronLeft style={{ width: '16px', height: '16px' }} />
@@ -163,6 +203,14 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
               <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.1)', margin: '0 2px' }} />
               <button
                 onClick={handleNextMonth}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                  e.currentTarget.style.color = '#fff';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = '#a1a1aa';
+                }}
                 style={{ 
                   width: '32px', 
                   height: '32px', 
@@ -173,7 +221,8 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
                   background: 'transparent',
                   border: 'none',
                   color: '#a1a1aa',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
                 }}
               >
                 <ChevronRight style={{ width: '16px', height: '16px' }} />
@@ -183,6 +232,16 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
             {/* Import Button */}
             <button
               onClick={() => setIsUploadOpen(true)}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'linear-gradient(135deg, rgba(34,211,238,0.3), rgba(168,85,247,0.3))';
+                e.currentTarget.style.borderColor = 'rgba(34,211,238,0.5)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'linear-gradient(135deg, rgba(34,211,238,0.2), rgba(168,85,247,0.2))';
+                e.currentTarget.style.borderColor = 'rgba(34,211,238,0.3)';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -194,7 +253,8 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
                 color: '#fff',
                 background: 'linear-gradient(135deg, rgba(34,211,238,0.2), rgba(168,85,247,0.2))',
                 border: '1px solid rgba(34,211,238,0.3)',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
               }}
             >
               <Upload style={{ width: '14px', height: '14px' }} />
@@ -204,6 +264,16 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
             {/* Logout Button */}
             <button
               onClick={handleLogout}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(239,68,68,0.1)';
+                e.currentTarget.style.borderColor = 'rgba(239,68,68,0.3)';
+                e.currentTarget.style.color = '#ef4444';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+                e.currentTarget.style.color = '#a1a1aa';
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -214,7 +284,8 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
                 color: '#a1a1aa',
                 background: 'rgba(255,255,255,0.05)',
                 border: '1px solid rgba(255,255,255,0.1)',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
               }}
               title="Sign out"
             >
@@ -260,6 +331,19 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
               return (
                 <div
                   key={day.toString()}
+                  onDoubleClick={() => isCurrentMonth && handleDayDoubleClick(day)}
+                  onMouseEnter={(e) => {
+                    if (isCurrentMonth && !isCurrentDay) {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (isCurrentMonth && !isCurrentDay) {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.02)';
+                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)';
+                    }
+                  }}
                   style={{
                     minHeight: '100px',
                     padding: '8px',
@@ -271,7 +355,9 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
                       ? '1px solid rgba(34,211,238,0.3)' 
                       : '1px solid rgba(255,255,255,0.06)',
                     opacity: isCurrentMonth ? 1 : 0.3,
-                    boxShadow: isCurrentDay ? '0 0 20px rgba(34,211,238,0.1)' : 'none'
+                    boxShadow: isCurrentDay ? '0 0 20px rgba(34,211,238,0.1)' : 'none',
+                    cursor: isCurrentMonth ? 'pointer' : 'default',
+                    transition: 'all 0.2s ease'
                   }}
                 >
                   {/* Date Number */}
@@ -303,26 +389,35 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
                   </div>
 
                   {/* Assignments */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '70px', overflowY: 'auto' }}>
+                  <div className="scrollbar-hide" style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '70px', overflowY: 'auto' }}>
                     {dayAssignments.map((assignment) => {
                       const color = getColor(assignment.courseName);
+                      const baseBg = assignment.submitted ? 'rgba(16,185,129,0.15)' : color.bg;
+                      const hoverBg = assignment.submitted ? 'rgba(16,185,129,0.25)' : color.bg.replace('0.15)', '0.25)');
                       return (
                         <button
                           key={assignment.id}
                           onClick={() => setSelectedAssignment(assignment)}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = hoverBg;
+                            e.currentTarget.style.transform = 'translateX(2px)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = baseBg;
+                            e.currentTarget.style.transform = 'translateX(0)';
+                          }}
                           style={{
                             width: '100%',
                             textAlign: 'left',
                             padding: '6px',
                             borderRadius: '6px',
-                            background: assignment.submitted 
-                              ? 'rgba(16,185,129,0.15)' 
-                              : color.bg,
+                            background: baseBg,
                             border: 'none',
                             borderLeft: `3px solid ${assignment.submitted ? '#10b981' : color.border}`,
                             cursor: 'pointer',
                             opacity: assignment.submitted ? 0.7 : 1,
-                            position: 'relative'
+                            position: 'relative',
+                            transition: 'all 0.15s ease'
                           }}
                         >
                           {assignment.submitted && (
@@ -421,6 +516,14 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
               {/* Close button */}
               <button
                 onClick={() => setSelectedAssignment(null)}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                  e.currentTarget.style.color = '#fff';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = '#a1a1aa';
+                }}
                 style={{
                   position: 'absolute',
                   top: '16px',
@@ -430,7 +533,8 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
                   background: 'transparent',
                   border: 'none',
                   color: '#a1a1aa',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
                 }}
               >
                 <X style={{ width: '20px', height: '20px' }} />
@@ -478,6 +582,24 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
                 {/* Submission Status Toggle */}
                 <button
                   onClick={() => handleToggleSubmitted(selectedAssignment.id)}
+                  onMouseEnter={(e) => {
+                    if (selectedAssignment.submitted) {
+                      e.currentTarget.style.background = 'rgba(16,185,129,0.15)';
+                      e.currentTarget.style.borderColor = 'rgba(16,185,129,0.4)';
+                    } else {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (selectedAssignment.submitted) {
+                      e.currentTarget.style.background = 'rgba(16,185,129,0.1)';
+                      e.currentTarget.style.borderColor = 'rgba(16,185,129,0.3)';
+                    } else {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)';
+                    }
+                  }}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -492,7 +614,7 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
                       ? '1px solid rgba(16,185,129,0.3)' 
                       : '1px solid rgba(255,255,255,0.06)',
                     cursor: 'pointer',
-                    transition: 'all 0.2s'
+                    transition: 'all 0.2s ease'
                   }}
                 >
                   {/* Checkbox */}
@@ -552,22 +674,61 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
                 )}
               </div>
 
-              <button
-                onClick={() => setSelectedAssignment(null)}
-                style={{
-                  marginTop: '24px',
-                  width: '100%',
-                  padding: '14px',
-                  background: 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  borderRadius: '12px',
-                  color: '#fff',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                Close
-              </button>
+              <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+                <button
+                  onClick={() => setSelectedAssignment(null)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '14px',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '12px',
+                    color: '#fff',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => handleDeleteAssignment(selectedAssignment.id)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(239,68,68,0.2)';
+                    e.currentTarget.style.borderColor = 'rgba(239,68,68,0.4)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(239,68,68,0.1)';
+                    e.currentTarget.style.borderColor = 'rgba(239,68,68,0.2)';
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    padding: '14px 20px',
+                    background: 'rgba(239,68,68,0.1)',
+                    border: '1px solid rgba(239,68,68,0.2)',
+                    borderRadius: '12px',
+                    color: '#ef4444',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                  title="Delete assignment"
+                >
+                  <Trash2 style={{ width: '16px', height: '16px' }} />
+                  Delete
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}
@@ -579,8 +740,48 @@ export function CalendarView({ currentDate, assignments }: CalendarViewProps) {
         onClose={() => setIsUploadOpen(false)} 
       />
 
-      {/* All Assignments List */}
-      <AssignmentList assignments={assignments} />
+      {/* Add Item Choice Modal */}
+      <AddItemModal
+        isOpen={isAddItemModalOpen}
+        onClose={() => setIsAddItemModalOpen(false)}
+        selectedDate={selectedDateForAdd}
+        onSelectEvent={handleSelectEvent}
+        onSelectAssignment={handleSelectAssignment}
+      />
+
+      {/* Add Event Modal */}
+      <AddEventModal
+        isOpen={isAddEventModalOpen}
+        onClose={() => {
+          setIsAddEventModalOpen(false);
+          setSelectedDateForAdd(null);
+        }}
+        initialDate={selectedDateForAdd}
+      />
+
+      {/* Add Assignment Modal */}
+      <AddAssignmentModal
+        isOpen={isAddAssignmentModalOpen}
+        onClose={() => {
+          setIsAddAssignmentModalOpen(false);
+          setSelectedDateForAdd(null);
+        }}
+        initialDate={selectedDateForAdd}
+      />
+
+      {/* Lists Section - Two Column Layout on larger screens */}
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', 
+        gap: '24px',
+        marginTop: '24px'
+      }}>
+        {/* Assignments List */}
+        <AssignmentList assignments={assignments} />
+        
+        {/* Events List */}
+        <EventList events={events} />
+      </div>
     </div>
   );
 }

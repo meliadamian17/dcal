@@ -1,72 +1,92 @@
 import { db } from "@/db";
-import { assignments } from "@/db/schema";
-import { sendNotificationEmail } from "@/lib/mail";
-import { and, eq, gte, lte } from "drizzle-orm";
-import { addHours } from "date-fns";
+import { assignments, events } from "@/db/schema";
+import { sendDailySummaryEmail } from "@/lib/mail";
+import { gte, lte, and, asc } from "drizzle-orm";
+import { addDays, startOfDay, endOfDay, format } from "date-fns";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   // Security Check for Vercel Cron
-  // Vercel automatically adds this header. For local testing, you can bypass or simulate it.
   const authHeader = request.headers.get("authorization");
-  if (
-    authHeader !== `Bearer ${process.env.CRON_SECRET}`
-  ) {
-    // Alternatively check for CRON_SECRET if not using standard Vercel cron auth protection
-    // usually Vercel requests doesn't strictly need this if we don't expose the route name publicly
-    // But good practice. For now, we will be permissive or check a custom secret.
-    // If user didn't ask for specific cron security, I'll leave it open or simple check.
-    // User said "Protect all API routes", so this exemption in middleware makes it public.
-    // I should probably check for a secret.
+  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
     const now = new Date();
-    const next24h = addHours(now, 24);
+    const todayStart = startOfDay(now);
+    const weekEnd = endOfDay(addDays(now, 7));
 
-    const pendingAssignments = await db
+    // Fetch assignments for the next 7 days
+    const upcomingAssignments = await db
       .select()
       .from(assignments)
       .where(
         and(
-          eq(assignments.notificationSent, false),
-          gte(assignments.dueDateTime, now),
-          lte(assignments.dueDateTime, next24h)
+          gte(assignments.dueDateTime, todayStart),
+          lte(assignments.dueDateTime, weekEnd)
         )
-      );
+      )
+      .orderBy(asc(assignments.dueDateTime));
 
-    if (pendingAssignments.length === 0) {
-      return NextResponse.json({ message: "No pending notifications" });
+    // Fetch events for the next 7 days
+    const upcomingEvents = await db
+      .select()
+      .from(events)
+      .where(
+        and(
+          gte(events.dateTime, todayStart),
+          lte(events.dateTime, weekEnd)
+        )
+      )
+      .orderBy(asc(events.dateTime));
+
+    const recipientEmail = process.env.NOTIFICATION_EMAIL || process.env.SMTP_USER;
+    
+    if (!recipientEmail) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "No recipient email configured" 
+      }, { status: 500 });
     }
 
-    let sentCount = 0;
-    const recipientEmail = process.env.SMTP_USER || "admin@example.com";
+    const dateLabel = format(now, "EEEE, MMMM d, yyyy");
+    
+    const sent = await sendDailySummaryEmail(
+      recipientEmail,
+      upcomingAssignments.map(a => ({
+        assignmentName: a.assignmentName,
+        courseName: a.courseName,
+        dueDateTime: a.dueDateTime,
+        description: a.description,
+        submitted: a.submitted,
+      })),
+      upcomingEvents.map(e => ({
+        title: e.title,
+        dateTime: e.dateTime,
+        description: e.description,
+        tags: e.tags || [],
+      })),
+      dateLabel
+    );
 
-    for (const assignment of pendingAssignments) {
-      const sent = await sendNotificationEmail(
-        recipientEmail,
-        assignment.assignmentName,
-        assignment.courseName,
-        assignment.dueDateTime,
-        assignment.description
-      );
-
-      if (sent) {
-        await db
-          .update(assignments)
-          .set({ notificationSent: true })
-          .where(eq(assignments.id, assignment.id));
-        sentCount++;
-      }
+    if (sent) {
+      return NextResponse.json({
+        success: true,
+        message: "Daily summary sent",
+        stats: {
+          assignments: upcomingAssignments.length,
+          events: upcomingEvents.length,
+        },
+      });
     }
 
     return NextResponse.json({
-      success: true,
-      processed: pendingAssignments.length,
-      sent: sentCount,
-    });
+      success: false,
+      error: "Failed to send email",
+    }, { status: 500 });
   } catch (error) {
     console.error("Cron Job Error:", error);
     return NextResponse.json(
