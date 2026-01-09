@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, AlertCircle, FileCode2, X } from "lucide-react";
+import { Upload, AlertCircle, FileCode2, X, Check } from "lucide-react";
 import { ReviewAssignmentsModal } from "./ReviewAssignmentsModal";
 
 interface UploadModalProps {
@@ -36,42 +36,101 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
     setProgressStage("uploading");
     setProgressMessage("Preparing file...");
     setError(null);
+    setExtractedData(null);
+
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
     try {
       const formData = new FormData();
       formData.append("file", file);
 
+      console.log("Starting file upload:", file.name);
       const response = await fetch("/api/upload/extract", {
         method: "POST",
         body: formData,
       });
 
+      console.log("Response status:", response.status, response.ok);
+
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text().catch(() => "Unknown error");
+        console.error("HTTP error:", response.status, errorText);
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
       }
 
-      const reader = response.body?.getReader();
+      reader = response.body?.getReader();
       if (!reader) {
-        throw new Error("No response body");
+        throw new Error("No response body - server may have closed the connection");
       }
 
       const decoder = new TextDecoder();
       let buffer = "";
+      let hasReceivedComplete = false;
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        
+        if (done) {
+          console.log("Stream done, remaining buffer:", buffer);
+          // Process any remaining buffer
+          if (buffer.trim()) {
+            const lines = buffer.split("\n");
+            for (const line of lines) {
+              if (line.trim() && line.startsWith("data: ")) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  console.log("Final buffer data:", data.stage);
+                  if (data.stage === "complete") {
+                    console.log("Complete event in final buffer:", data.data);
+                    setExtractedData(data.data);
+                    setProgressStage("complete");
+                    setProgressMessage(data.message || "Extraction complete!");
+                    hasReceivedComplete = true;
+                    // Keep processing state until review modal is ready
+                    setTimeout(() => {
+                      console.log("Opening review modal from final buffer");
+                      setIsProcessing(false);
+                      setShowReviewModal(true);
+                    }, 300);
+                  } else if (data.stage === "error") {
+                    setProgressStage("error");
+                    setError(data.error || "An error occurred during extraction");
+                    setIsProcessing(false);
+                  }
+                } catch (e) {
+                  console.error("Error parsing final SSE data:", e, line);
+                }
+              }
+            }
+          }
+          
+          if (!hasReceivedComplete) {
+            console.error("Stream ended without complete event");
+            setProgressStage("error");
+            setError("Stream ended unexpectedly. The extraction may have failed or timed out.");
+            setIsProcessing(false);
+          }
+          break;
+        }
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+        const chunk = decoder.decode(value, { stream: true });
+        console.log("Received chunk:", chunk.substring(0, 100));
+        buffer += chunk;
+        
+        // Split by double newline (SSE event separator) or single newline
+        const events = buffer.split(/\n\n|\n/);
+        buffer = events.pop() || "";
 
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
+        for (const event of events) {
+          const line = event.trim();
+          if (line && line.startsWith("data: ")) {
             try {
-              const data = JSON.parse(line.slice(6));
+              const jsonStr = line.slice(6);
+              console.log("Parsing SSE event:", jsonStr.substring(0, 100));
+              const data = JSON.parse(jsonStr);
               
               if (data.stage === "error") {
+                console.error("Error from server:", data.error);
                 setProgressStage("error");
                 setError(data.error || "An error occurred during extraction");
                 setIsProcessing(false);
@@ -79,27 +138,44 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
               }
 
               if (data.stage === "complete") {
+                console.log("Extraction complete, received data:", data.data);
                 setProgressStage("complete");
                 setProgressMessage(data.message || "Extraction complete!");
                 setExtractedData(data.data);
-                setIsProcessing(false);
-                // Open review modal
-                setShowReviewModal(true);
+                hasReceivedComplete = true;
+                // Keep processing state until review modal is ready
+                // Then smoothly transition
+                setTimeout(() => {
+                  console.log("Opening review modal");
+                  setIsProcessing(false);
+                  setShowReviewModal(true);
+                }, 300);
                 return;
               }
 
+              // Update progress for other stages
+              console.log("Progress update:", data.stage, data.message);
               setProgressStage(data.stage);
               setProgressMessage(data.message || "");
             } catch (e) {
-              console.error("Error parsing SSE data:", e);
+              console.error("Error parsing SSE data:", e, "Line:", line);
             }
           }
         }
       }
     } catch (err) {
+      console.error("Upload error:", err);
       setProgressStage("error");
-      setError(err instanceof Error ? err.message : "Failed to process file");
+      setError(err instanceof Error ? err.message : "Failed to process file. Please try again.");
       setIsProcessing(false);
+    } finally {
+      if (reader) {
+        try {
+          reader.releaseLock();
+        } catch (e) {
+          // Ignore release errors
+        }
+      }
     }
   }, []);
 
@@ -124,11 +200,13 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
   const handleClose = () => {
     if (!isProcessing) {
       onClose();
+      // Reset state after modal closes
       setTimeout(() => {
         setProgressStage("idle");
         setProgressMessage("");
         setError(null);
         setExtractedData(null);
+        setShowReviewModal(false);
       }, 200);
     }
   };
@@ -159,12 +237,13 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
 
   return (
     <>
-      <AnimatePresence>
-        {isOpen && (
+      <AnimatePresence mode="wait">
+        {isOpen && !showReviewModal && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
             style={{
               position: "fixed",
               inset: 0,
@@ -176,12 +255,13 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
               background: "rgba(0,0,0,0.85)",
               backdropFilter: "blur(20px)",
             }}
-            onClick={handleClose}
+            onClick={isProcessing ? undefined : handleClose}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ duration: 0.2 }}
               style={{
                 background: "rgba(15, 15, 20, 0.98)",
                 borderRadius: "20px",
@@ -345,12 +425,18 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
                       style={{
                         marginTop: "16px",
                         padding: "20px",
-                        background: "rgba(34,211,238,0.1)",
-                        border: "1px solid rgba(34,211,238,0.2)",
+                        background: progressStage === "complete" 
+                          ? "rgba(16,185,129,0.1)" 
+                          : "rgba(34,211,238,0.1)",
+                        border: `1px solid ${progressStage === "complete" 
+                          ? "rgba(16,185,129,0.2)" 
+                          : "rgba(34,211,238,0.2)"}`,
                         borderRadius: "12px",
+                        transition: "all 0.3s ease",
                       }}
                     >
                       <div
@@ -358,31 +444,53 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
                           display: "flex",
                           alignItems: "center",
                           gap: "12px",
-                          marginBottom: "12px",
+                          marginBottom: progressMessage ? "12px" : 0,
                         }}
                       >
-                        <div
-                          style={{
-                            width: "20px",
-                            height: "20px",
-                            border: "2px solid #22d3ee",
-                            borderTopColor: "transparent",
-                            borderRadius: "50%",
-                            animation: "spin 1s linear infinite",
-                          }}
-                        />
+                        {progressStage === "complete" ? (
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                            style={{
+                              width: "20px",
+                              height: "20px",
+                              background: "#10b981",
+                              borderRadius: "50%",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <Check style={{ width: "12px", height: "12px", color: "#fff" }} />
+                          </motion.div>
+                        ) : (
+                          <div
+                            style={{
+                              width: "20px",
+                              height: "20px",
+                              border: "2px solid #22d3ee",
+                              borderTopColor: "transparent",
+                              borderRadius: "50%",
+                              animation: "spin 1s linear infinite",
+                            }}
+                          />
+                        )}
                         <span
                           style={{
                             fontWeight: 600,
-                            color: "#22d3ee",
+                            color: progressStage === "complete" ? "#10b981" : "#22d3ee",
                             fontSize: "16px",
+                            transition: "color 0.3s ease",
                           }}
                         >
                           {getProgressLabel()}
                         </span>
                       </div>
                       {progressMessage && (
-                        <p
+                        <motion.p
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
                           style={{
                             color: "#a1a1aa",
                             fontSize: "14px",
@@ -391,7 +499,7 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
                           }}
                         >
                           {progressMessage}
-                        </p>
+                        </motion.p>
                       )}
                     </motion.div>
                   )}

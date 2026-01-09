@@ -62,6 +62,9 @@ Extract:
    - Due time (optional, in HH:MM 24-hour format, or null if not specified)
 
 Be thorough and extract ALL assignments mentioned in the syllabus, including those in schedules, calendars, or assignment sections.
+If an assignment is not mentioned in the syllabus, do not include it in the output.
+If there are assignments that are grouped together but have seperate dates, include them as seperate assignments.
+Include exams, quizzes, in tutorial assesments, etc.
 
 CRITICAL: Return ONLY valid JSON, no markdown, no code blocks, no explanations. The JSON must match this exact structure:
 {
@@ -95,24 +98,44 @@ Ensure all required fields are present and dates are in YYYY-MM-DD format.`;
   try {
     sendProgressUpdate("analyzing", retryCount === 0 ? "Sending PDF to AI for analysis..." : "Retrying extraction...");
 
-    const { text, finishReason } = await generateText({
-      model: google("gemini-3-flash-preview"),
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: prompt,
-            },
-            {
-              type: "image",
-              image: `data:${mimeType};base64,${base64}`,
-            },
-          ],
-        },
-      ],
-    });
+    let text: string;
+    const startTime = Date.now();
+    try {
+      console.log(`Starting Gemini API call (attempt ${retryCount + 1})...`);
+      const result = await generateText({
+        model: google("gemini-2.5-flash"),
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: prompt,
+              },
+              {
+                type: "file",
+                data: Buffer.from(base64, "base64"),
+                mediaType: mimeType as "application/pdf",
+              },
+            ],
+          },
+        ],
+      });
+      text = result.text;
+      console.log(`Gemini API call completed in ${Date.now() - startTime}ms`);
+    } catch (apiError) {
+      console.error("Gemini API error:", apiError);
+      if (retryCount === 0) {
+        return extractSyllabusData(
+          base64,
+          mimeType,
+          sendProgressUpdate,
+          1,
+          `API error: ${apiError instanceof Error ? apiError.message : "Failed to connect to AI service"}`
+        );
+      }
+      throw apiError;
+    }
 
     sendProgressUpdate("extracting", "Processing AI response...");
 
@@ -210,10 +233,18 @@ export async function POST(request: NextRequest) {
         const base64 = Buffer.from(arrayBuffer).toString("base64");
         const mimeType = file.type || "application/pdf";
 
+        sendProgress(controller, "analyzing", "Sending to AI for analysis...");
+
         const result = await extractSyllabusData(
           base64,
           mimeType,
-          (stage, message) => sendProgress(controller, stage, message)
+          (stage, message) => {
+            try {
+              sendProgress(controller, stage, message);
+            } catch (e) {
+              console.error("Error sending progress:", e);
+            }
+          }
         );
 
         if (!result.success) {
@@ -227,22 +258,29 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        sendProgress(controller, "complete", `Extracted ${result.data.assignments.length} assignment(s)`);
-
+        // Send the final complete event with the data
+        console.log("Sending complete event with", result.data.assignments.length, "assignments");
         const complete = JSON.stringify({
           stage: "complete",
+          message: `Extracted ${result.data.assignments.length} assignment(s)`,
           data: result.data,
           timestamp: Date.now(),
         });
         controller.enqueue(encoder.encode(`data: ${complete}\n\n`));
+        console.log("Complete event sent, closing stream");
         controller.close();
       } catch (error) {
+        console.error("API route error:", error);
         const errorData = JSON.stringify({
           stage: "error",
           error: error instanceof Error ? error.message : "Unknown error occurred",
           timestamp: Date.now(),
         });
-        controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
+        try {
+          controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
+        } catch (e) {
+          console.error("Error sending error message:", e);
+        }
         controller.close();
       }
     },
@@ -251,8 +289,9 @@ export async function POST(request: NextRequest) {
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-transform",
       "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }
