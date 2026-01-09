@@ -1,11 +1,7 @@
-"use server";
-
-import { db } from "@/db";
-import { assignments } from "@/db/schema";
-import { revalidatePath } from "next/cache";
 import { google } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { z } from "zod";
+import { NextRequest } from "next/server";
 
 // Zod schema for structured output validation
 const AssignmentSchema = z.object({
@@ -37,11 +33,20 @@ function formatValidationErrors(error: z.ZodError): string {
 }
 
 /**
+ * Sends a progress update via SSE
+ */
+function sendProgress(controller: ReadableStreamDefaultController, stage: string, message?: string) {
+  const data = JSON.stringify({ stage, message, timestamp: Date.now() });
+  controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`));
+}
+
+/**
  * Attempts to extract and validate syllabus data from AI response
  */
 async function extractSyllabusData(
   base64: string,
   mimeType: string,
+  sendProgressUpdate: (stage: string, message?: string) => void,
   retryCount: number = 0,
   previousError?: string
 ): Promise<{ success: true; data: SyllabusStructure } | { success: false; error: string }> {
@@ -88,7 +93,9 @@ Please try again. Return ONLY valid JSON matching this exact structure:
 Ensure all required fields are present and dates are in YYYY-MM-DD format.`;
 
   try {
-    const { text } = await generateText({
+    sendProgressUpdate("analyzing", retryCount === 0 ? "Sending PDF to AI for analysis..." : "Retrying extraction...");
+
+    const { text, finishReason } = await generateText({
       model: google("gemini-3-flash-preview"),
       messages: [
         {
@@ -107,11 +114,15 @@ Ensure all required fields are present and dates are in YYYY-MM-DD format.`;
       ],
     });
 
+    sendProgressUpdate("extracting", "Processing AI response...");
+
     let jsonText = text.trim();
     const jsonMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (jsonMatch) {
       jsonText = jsonMatch[1].trim();
     }
+
+    sendProgressUpdate("validating", "Validating extracted data...");
 
     let parsed: unknown;
     try {
@@ -121,6 +132,7 @@ Ensure all required fields are present and dates are in YYYY-MM-DD format.`;
         return extractSyllabusData(
           base64,
           mimeType,
+          sendProgressUpdate,
           1,
           `Invalid JSON format. The response was not valid JSON.`
         );
@@ -141,6 +153,7 @@ Ensure all required fields are present and dates are in YYYY-MM-DD format.`;
           return extractSyllabusData(
             base64,
             mimeType,
+            sendProgressUpdate,
             1,
             `Validation failed:\n${errorMessage}`
           );
@@ -157,6 +170,7 @@ Ensure all required fields are present and dates are in YYYY-MM-DD format.`;
       return extractSyllabusData(
         base64,
         mimeType,
+        sendProgressUpdate,
         1,
         error instanceof Error ? error.message : "Unknown error occurred"
       );
@@ -168,157 +182,77 @@ Ensure all required fields are present and dates are in YYYY-MM-DD format.`;
   }
 }
 
-/**
- * Saves selected assignments to the database
- */
-export async function saveSelectedAssignments(
-  courseName: string,
-  selectedAssignments: Array<{
-    name: string;
-    description?: string;
-    due_date: string;
-    due_time?: string | null;
-  }>
-) {
-  try {
-    let successCount = 0;
-    const errors: string[] = [];
+export async function POST(request: NextRequest) {
+  const encoder = new TextEncoder();
 
-    for (const assignment of selectedAssignments) {
+  const stream = new ReadableStream({
+    async start(controller) {
       try {
-        const time = assignment.due_time || "23:59";
-        const dateTimeString = `${assignment.due_date}T${time}`;
-        const dueDateTime = new Date(dateTimeString);
+        sendProgress(controller, "uploading", "Receiving PDF file...");
 
-        if (isNaN(dueDateTime.getTime())) {
-          errors.push(`Invalid date for assignment: ${assignment.name} (${dateTimeString})`);
-          continue;
+        const formData = await request.formData();
+        const file = formData.get("file") as File;
+
+        if (!file) {
+          const error = JSON.stringify({ 
+            stage: "error", 
+            error: "No file provided",
+            timestamp: Date.now()
+          });
+          controller.enqueue(encoder.encode(`data: ${error}\n\n`));
+          controller.close();
+          return;
         }
 
-        await db
-          .insert(assignments)
-          .values({
-            courseName,
-            assignmentName: assignment.name,
-            description: assignment.description || "",
-            dueDateTime,
-            notificationSent: false,
-          })
-          .onConflictDoUpdate({
-            target: [assignments.courseName, assignments.assignmentName],
-            set: {
-              description: assignment.description || "",
-              dueDateTime,
-              notificationSent: false,
-            },
+        sendProgress(controller, "uploading", `Processing ${file.name}...`);
+
+        const arrayBuffer = await file.arrayBuffer();
+        const base64 = Buffer.from(arrayBuffer).toString("base64");
+        const mimeType = file.type || "application/pdf";
+
+        const result = await extractSyllabusData(
+          base64,
+          mimeType,
+          (stage, message) => sendProgress(controller, stage, message)
+        );
+
+        if (!result.success) {
+          const error = JSON.stringify({
+            stage: "error",
+            error: result.error,
+            timestamp: Date.now(),
           });
-
-        successCount++;
-      } catch (error) {
-        errors.push(`Failed to save assignment: ${assignment.name}`);
-        console.error(`Error saving assignment ${assignment.name}:`, error);
-      }
-    }
-
-    revalidatePath("/");
-
-    if (successCount === 0) {
-      return {
-        success: false,
-        error: errors.length > 0 ? errors.join("; ") : "No valid assignments found",
-      };
-    }
-
-    return {
-      success: true,
-      count: successCount,
-      errors: errors.length > 0 ? errors : undefined,
-    };
-  } catch (error) {
-    console.error("Error saving assignments:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Failed to save assignments",
-    };
-  }
-}
-
-/**
- * Processes a PDF file using Gemini 2.5 Flash to extract course and assignment information
- * @deprecated Use the streaming API route instead
- */
-export async function processPdfUpload(file: File) {
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString("base64");
-    const mimeType = file.type || "application/pdf";
-
-    const result = await extractSyllabusData(base64, mimeType);
-    if (!result.success) {
-      return { success: false, error: result.error };
-    }
-
-    const data = result.data;
-
-    const courseName = data.course;
-    let successCount = 0;
-    const errors: string[] = [];
-
-    for (const assignment of data.assignments) {
-      try {
-        const time = assignment.due_time || "23:59";
-        const dateTimeString = `${assignment.due_date}T${time}`;
-        const dueDateTime = new Date(dateTimeString);
-
-        if (isNaN(dueDateTime.getTime())) {
-          errors.push(`Invalid date for assignment: ${assignment.name} (${dateTimeString})`);
-          continue;
+          controller.enqueue(encoder.encode(`data: ${error}\n\n`));
+          controller.close();
+          return;
         }
 
-        await db
-          .insert(assignments)
-          .values({
-            courseName,
-            assignmentName: assignment.name,
-            description: assignment.description || "",
-            dueDateTime,
-            notificationSent: false,
-          })
-          .onConflictDoUpdate({
-            target: [assignments.courseName, assignments.assignmentName],
-            set: {
-              description: assignment.description || "",
-              dueDateTime,
-              notificationSent: false,
-            },
-          });
+        sendProgress(controller, "complete", `Extracted ${result.data.assignments.length} assignment(s)`);
 
-        successCount++;
+        const complete = JSON.stringify({
+          stage: "complete",
+          data: result.data,
+          timestamp: Date.now(),
+        });
+        controller.enqueue(encoder.encode(`data: ${complete}\n\n`));
+        controller.close();
       } catch (error) {
-        errors.push(`Failed to save assignment: ${assignment.name}`);
-        console.error(`Error saving assignment ${assignment.name}:`, error);
+        const errorData = JSON.stringify({
+          stage: "error",
+          error: error instanceof Error ? error.message : "Unknown error occurred",
+          timestamp: Date.now(),
+        });
+        controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
+        controller.close();
       }
-    }
+    },
+  });
 
-    revalidatePath("/");
-    
-    if (successCount === 0) {
-      return {
-        success: false,
-        error: errors.length > 0 ? errors.join("; ") : "No valid assignments found",
-      };
-    }
-
-    return {
-      success: true,
-      count: successCount,
-      errors: errors.length > 0 ? errors : undefined,
-    };
-  } catch (error) {
-    console.error("Error processing PDF:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Failed to process PDF file",
-    };
-  }
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    },
+  });
 }
