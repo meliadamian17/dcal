@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { motion, AnimatePresence } from "framer-motion";
 import { Upload, Check, AlertCircle, FileCode2, X } from "lucide-react";
-import { processYamlUpload } from "@/actions/upload";
+import { processPdfUpload } from "@/actions/upload";
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -26,8 +26,7 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
 
     for (const file of acceptedFiles) {
       try {
-        const text = await file.text();
-        const result = await processYamlUpload(text);
+        const result = await processPdfUpload(file);
         if (result.success) {
           successCount++;
         } else {
@@ -58,8 +57,7 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      "text/yaml": [".yaml", ".yml"],
-      "application/x-yaml": [".yaml", ".yml"],
+      "application/pdf": [".pdf"],
     },
   });
 
@@ -121,7 +119,7 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px' }}>
                 <div>
                   <h2 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', margin: 0 }}>Import Course Data</h2>
-                  <p style={{ color: '#71717a', fontSize: '14px', marginTop: '4px' }}>Upload your YAML files to sync assignments</p>
+                  <p style={{ color: '#71717a', fontSize: '14px', marginTop: '4px' }}>Upload your syllabus PDF to extract assignments</p>
                 </div>
                 <button
                   onClick={handleClose}
@@ -171,7 +169,7 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
                   ) : (
                     <div>
                       <p style={{ fontSize: '18px', fontWeight: 600, color: '#fff', margin: 0 }}>
-                        Drag & drop YAML files
+                        Drag & drop PDF files
                       </p>
                       <p style={{ fontSize: '14px', color: '#71717a', marginTop: '4px' }}>
                         or click to browse your files
@@ -250,20 +248,24 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
                   border: '1px solid rgba(255,255,255,0.06)',
                   overflowX: 'auto'
                 }}>
-                  <pre style={{
+                  <div style={{
                     fontSize: '12px',
                     color: '#a1a1aa',
-                    fontFamily: 'monospace',
                     lineHeight: 1.6,
                     margin: 0
                   }}>
-{`course: "CS 405"
-assignments:
-  - name: "Project 1"
-    description: "Build a REST API"
-    due_date: "2026-02-15"
-    due_time: "14:00"`}
-                  </pre>
+                    <p style={{ margin: '0 0 8px 0' }}>
+                      Upload a syllabus PDF and our AI will automatically extract:
+                    </p>
+                    <ul style={{ margin: 0, paddingLeft: '20px', listStyle: 'disc' }}>
+                      <li>Course name</li>
+                      <li>All assignments with due dates</li>
+                      <li>Assignment descriptions</li>
+                    </ul>
+                    <p style={{ margin: '12px 0 0 0', fontSize: '11px', color: '#71717a' }}>
+                      Powered by Gemini 2.5 Flash
+                    </p>
+                  </div>
                 </div>
               </div>
 
