@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Check, Calendar, Clock, BookOpen } from "lucide-react";
 import { saveSelectedAssignments } from "@/actions/upload";
@@ -33,6 +33,13 @@ export function ReviewAssignmentsModal({
   );
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-select all assignments when modal opens or assignments change
+  useEffect(() => {
+    if (isOpen && assignments.length > 0) {
+      setSelectedIndices(new Set(assignments.map((_, index) => index)));
+    }
+  }, [isOpen, assignments]);
 
   const toggleSelection = useCallback((index: number) => {
     setSelectedIndices((prev) => {

@@ -5,179 +5,97 @@ import { useDropzone } from "react-dropzone";
 import { motion, AnimatePresence } from "framer-motion";
 import { Upload, AlertCircle, FileCode2, X, Check } from "lucide-react";
 import { ReviewAssignmentsModal } from "./ReviewAssignmentsModal";
+import { useMutation } from "@tanstack/react-query";
+import {
+  uploadExtractSyllabus,
+  type ExtractedSyllabusData,
+  type SSEProgressEvent,
+} from "@/lib/api";
 
 interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-interface ExtractedData {
-  course: string;
-  assignments: Array<{
-    name: string;
-    description?: string;
-    due_date: string;
-    due_time?: string | null;
-  }>;
-}
-
 type ProgressStage = "idle" | "uploading" | "analyzing" | "extracting" | "validating" | "complete" | "error";
 
 export function UploadModal({ isOpen, onClose }: UploadModalProps) {
-  const [isProcessing, setIsProcessing] = useState(false);
   const [progressStage, setProgressStage] = useState<ProgressStage>("idle");
   const [progressMessage, setProgressMessage] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
+  const [extractedData, setExtractedData] = useState<ExtractedSyllabusData | null>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
 
-  const processFileWithStreaming = useCallback(async (file: File) => {
-    setIsProcessing(true);
-    setProgressStage("uploading");
-    setProgressMessage("Preparing file...");
-    setError(null);
-    setExtractedData(null);
-
-    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      console.log("Starting file upload:", file.name);
-      const response = await fetch("/api/upload/extract", {
-        method: "POST",
-        body: formData,
-      });
-
-      console.log("Response status:", response.status, response.ok);
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "Unknown error");
-        console.error("HTTP error:", response.status, errorText);
-        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
-      }
-
-      reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("No response body - server may have closed the connection");
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let hasReceivedComplete = false;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) {
-          console.log("Stream done, remaining buffer:", buffer);
-          // Process any remaining buffer
-          if (buffer.trim()) {
-            const lines = buffer.split("\n");
-            for (const line of lines) {
-              if (line.trim() && line.startsWith("data: ")) {
-                try {
-                  const data = JSON.parse(line.slice(6));
-                  console.log("Final buffer data:", data.stage);
-                  if (data.stage === "complete") {
-                    console.log("Complete event in final buffer:", data.data);
-                    setExtractedData(data.data);
-                    setProgressStage("complete");
-                    setProgressMessage(data.message || "Extraction complete!");
-                    hasReceivedComplete = true;
-                    // Keep processing state until review modal is ready
-                    setTimeout(() => {
-                      console.log("Opening review modal from final buffer");
-                      setIsProcessing(false);
-                      setShowReviewModal(true);
-                    }, 300);
-                  } else if (data.stage === "error") {
-                    setProgressStage("error");
-                    setError(data.error || "An error occurred during extraction");
-                    setIsProcessing(false);
-                  }
-                } catch (e) {
-                  console.error("Error parsing final SSE data:", e, line);
-                }
-              }
-            }
+  const handleProgress = useCallback((event: SSEProgressEvent) => {
+    console.log("Progress update:", event.stage, event.message, event.partialData);
+    setProgressStage(event.stage);
+    
+    if (event.message) {
+      setProgressMessage(event.message);
+    }
+    
+    // Update with partial data as it streams in
+    if (event.partialData) {
+      const partial = event.partialData;
+      if (partial.course || partial.assignments) {
+        // Merge partial data with existing data
+        setExtractedData((prev) => {
+          const merged: ExtractedSyllabusData = {
+            course: partial.course || prev?.course || "",
+            assignments: partial.assignments || prev?.assignments || [],
+          };
+          
+          // Update progress message with live count
+          if (merged.assignments.length > 0) {
+            setProgressMessage(
+              `Found ${merged.assignments.length} assignment${merged.assignments.length === 1 ? "" : "s"}${merged.course ? ` for ${merged.course}` : ""}...`
+            );
           }
           
-          if (!hasReceivedComplete) {
-            console.error("Stream ended without complete event");
-            setProgressStage("error");
-            setError("Stream ended unexpectedly. The extraction may have failed or timed out.");
-            setIsProcessing(false);
-          }
-          break;
-        }
-
-        const chunk = decoder.decode(value, { stream: true });
-        console.log("Received chunk:", chunk.substring(0, 100));
-        buffer += chunk;
-        
-        // Split by double newline (SSE event separator) or single newline
-        const events = buffer.split(/\n\n|\n/);
-        buffer = events.pop() || "";
-
-        for (const event of events) {
-          const line = event.trim();
-          if (line && line.startsWith("data: ")) {
-            try {
-              const jsonStr = line.slice(6);
-              console.log("Parsing SSE event:", jsonStr.substring(0, 100));
-              const data = JSON.parse(jsonStr);
-              
-              if (data.stage === "error") {
-                console.error("Error from server:", data.error);
-                setProgressStage("error");
-                setError(data.error || "An error occurred during extraction");
-                setIsProcessing(false);
-                return;
-              }
-
-              if (data.stage === "complete") {
-                console.log("Extraction complete, received data:", data.data);
-                setProgressStage("complete");
-                setProgressMessage(data.message || "Extraction complete!");
-                setExtractedData(data.data);
-                hasReceivedComplete = true;
-                // Keep processing state until review modal is ready
-                // Then smoothly transition
-                setTimeout(() => {
-                  console.log("Opening review modal");
-                  setIsProcessing(false);
-                  setShowReviewModal(true);
-                }, 300);
-                return;
-              }
-
-              // Update progress for other stages
-              console.log("Progress update:", data.stage, data.message);
-              setProgressStage(data.stage);
-              setProgressMessage(data.message || "");
-            } catch (e) {
-              console.error("Error parsing SSE data:", e, "Line:", line);
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error("Upload error:", err);
-      setProgressStage("error");
-      setError(err instanceof Error ? err.message : "Failed to process file. Please try again.");
-      setIsProcessing(false);
-    } finally {
-      if (reader) {
-        try {
-          reader.releaseLock();
-        } catch (e) {
-          // Ignore release errors
-        }
+          return merged;
+        });
       }
     }
+    
+    if (event.stage === "error" && event.error) {
+      setProgressMessage(event.error);
+    }
+    
+    if (event.stage === "complete" && event.data) {
+      setExtractedData(event.data);
+      setProgressMessage(event.message || "Extraction complete!");
+    }
   }, []);
+
+  const mutation = useMutation({
+    mutationFn: async (file: File): Promise<ExtractedSyllabusData> => {
+      return uploadExtractSyllabus({
+        file,
+        onProgress: handleProgress,
+      });
+    },
+    onSuccess: (data) => {
+      setExtractedData(data);
+      setProgressStage("complete");
+      setTimeout(() => {
+        setShowReviewModal(true);
+      }, 300);
+    },
+    onError: (error) => {
+      console.error("Upload error:", error);
+      setProgressStage("error");
+      setProgressMessage(error instanceof Error ? error.message : "Failed to process file. Please try again.");
+    },
+  });
+
+  const processFileWithStreaming = useCallback(
+    async (file: File) => {
+      setProgressStage("uploading");
+      setProgressMessage("Preparing file...");
+      setExtractedData(null);
+      mutation.mutate(file);
+    },
+    [mutation]
+  );
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -188,6 +106,8 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
     },
     [processFileWithStreaming]
   );
+
+  const isProcessing = mutation.isPending;
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -204,9 +124,9 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
       setTimeout(() => {
         setProgressStage("idle");
         setProgressMessage("");
-        setError(null);
         setExtractedData(null);
         setShowReviewModal(false);
+        mutation.reset();
       }, 200);
     }
   };
@@ -504,7 +424,94 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
                     </motion.div>
                   )}
 
-                  {error && (
+                  {/* Live Preview of Assignments */}
+                  {isProcessing && extractedData && extractedData.assignments.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      style={{
+                        marginTop: "16px",
+                        padding: "16px",
+                        background: "rgba(34,211,238,0.05)",
+                        border: "1px solid rgba(34,211,238,0.2)",
+                        borderRadius: "12px",
+                        maxHeight: "300px",
+                        overflowY: "auto",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          marginBottom: "12px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: "14px",
+                            fontWeight: 600,
+                            color: "#22d3ee",
+                          }}
+                        >
+                          Live Preview
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "12px",
+                            color: "#71717a",
+                          }}
+                        >
+                          {extractedData.assignments.length} assignment
+                          {extractedData.assignments.length !== 1 ? "s" : ""} found
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "8px",
+                        }}
+                      >
+                        {extractedData.assignments.map((assignment, index) => (
+                          <motion.div
+                            key={index}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            style={{
+                              padding: "10px 12px",
+                              background: "rgba(255,255,255,0.05)",
+                              borderRadius: "8px",
+                              border: "1px solid rgba(255,255,255,0.1)",
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: "13px",
+                                fontWeight: 500,
+                                color: "#fff",
+                                marginBottom: "4px",
+                              }}
+                            >
+                              {assignment.name}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "11px",
+                                color: "#71717a",
+                              }}
+                            >
+                              Due: {assignment.due_date}
+                              {assignment.due_time ? ` at ${assignment.due_time}` : ""}
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {mutation.error && (
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -547,7 +554,9 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
                             lineHeight: 1.5,
                           }}
                         >
-                          {error}
+                          {mutation.error instanceof Error
+                            ? mutation.error.message
+                            : "Failed to process file. Please try again."}
                         </p>
                       </div>
                     </motion.div>
@@ -555,7 +564,7 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
                 </AnimatePresence>
 
                 {/* Format Guide */}
-                {!isProcessing && !error && (
+                {!isProcessing && !mutation.error && (
                   <div style={{ marginTop: "24px" }}>
                     <div
                       style={{

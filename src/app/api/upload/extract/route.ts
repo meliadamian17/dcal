@@ -1,5 +1,5 @@
 import { google } from "@ai-sdk/google";
-import { generateText } from "ai";
+import { streamText, Output } from "ai";
 import { z } from "zod";
 import { NextRequest } from "next/server";
 
@@ -19,39 +19,46 @@ const SyllabusSchema = z.object({
 type SyllabusStructure = z.infer<typeof SyllabusSchema>;
 
 /**
- * Formats Zod validation errors into user-friendly messages
- */
-function formatValidationErrors(error: z.ZodError): string {
-  const issues = error.issues.map((issue) => {
-    const path = issue.path.join(".");
-    if (path) {
-      return `- ${path}: ${issue.message}`;
-    }
-    return `- ${issue.message}`;
-  });
-  return issues.join("\n");
-}
-
-/**
  * Sends a progress update via SSE
  */
-function sendProgress(controller: ReadableStreamDefaultController, stage: string, message?: string) {
-  const data = JSON.stringify({ stage, message, timestamp: Date.now() });
-  controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`));
+function sendProgress(
+  controller: ReadableStreamDefaultController,
+  stage: string,
+  message?: string,
+  partialData?: Partial<SyllabusStructure>
+) {
+  const data: {
+    stage: string;
+    message?: string;
+    partialData?: Partial<SyllabusStructure>;
+    timestamp: number;
+  } = { stage, timestamp: Date.now() };
+  
+  if (message) {
+    data.message = message;
+  }
+  
+  if (partialData) {
+    data.partialData = partialData;
+  }
+  
+  controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`));
 }
 
 /**
- * Attempts to extract and validate syllabus data from AI response
+ * Streams extraction of syllabus data from AI response
  */
-async function extractSyllabusData(
+async function streamExtractSyllabusData(
   base64: string,
   mimeType: string,
-  sendProgressUpdate: (stage: string, message?: string) => void,
-  retryCount: number = 0,
-  previousError?: string
+  sendProgressUpdate: (
+    stage: string,
+    message?: string,
+    partialData?: Partial<SyllabusStructure>
+  ) => void,
+  controller: ReadableStreamDefaultController
 ): Promise<{ success: true; data: SyllabusStructure } | { success: false; error: string }> {
-  const prompt = retryCount === 0
-    ? `You are a syllabus parser. Extract course information and all assignments from this PDF document.
+  const prompt = `You are a syllabus parser. Extract course information and all assignments from this PDF document.
 
 Extract:
 1. The course name/code
@@ -63,141 +70,82 @@ Extract:
 
 Be thorough and extract ALL assignments mentioned in the syllabus, including those in schedules, calendars, or assignment sections.
 If an assignment is not mentioned in the syllabus, do not include it in the output.
-If there are assignments that are grouped together but have seperate dates, include them as seperate assignments.
-Include exams, quizzes, in tutorial assesments, etc.
-
-CRITICAL: Return ONLY valid JSON, no markdown, no code blocks, no explanations. The JSON must match this exact structure:
-{
-  "course": "string (required)",
-  "assignments": [
-    {
-      "name": "string (required)",
-      "description": "string (optional, can be omitted)",
-      "due_date": "YYYY-MM-DD (required)",
-      "due_time": "HH:MM or null (optional)"
-    }
-  ]
-}`
-    : `The previous extraction failed with this error: ${previousError}
-
-Please try again. Return ONLY valid JSON matching this exact structure:
-{
-  "course": "string (required)",
-  "assignments": [
-    {
-      "name": "string (required)",
-      "description": "string (optional, can be omitted)",
-      "due_date": "YYYY-MM-DD (required)",
-      "due_time": "HH:MM or null (optional)"
-    }
-  ]
-}
-
-Ensure all required fields are present and dates are in YYYY-MM-DD format.`;
+If there are assignments that are grouped together but have separate dates, include them as separate assignments.
+Include exams, quizzes, in-tutorial assessments, etc.`;
 
   try {
-    sendProgressUpdate("analyzing", retryCount === 0 ? "Sending PDF to AI for analysis..." : "Retrying extraction...");
+    sendProgressUpdate("analyzing", "Sending PDF to AI for analysis...");
 
-    let text: string;
     const startTime = Date.now();
-    try {
-      console.log(`Starting Gemini API call (attempt ${retryCount + 1})...`);
-      const result = await generateText({
-        model: google("gemini-2.5-flash"),
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: prompt,
-              },
-              {
-                type: "file",
-                data: Buffer.from(base64, "base64"),
-                mediaType: mimeType as "application/pdf",
-              },
-            ],
-          },
-        ],
-      });
-      text = result.text;
-      console.log(`Gemini API call completed in ${Date.now() - startTime}ms`);
-    } catch (apiError) {
-      console.error("Gemini API error:", apiError);
-      if (retryCount === 0) {
-        return extractSyllabusData(
-          base64,
-          mimeType,
-          sendProgressUpdate,
-          1,
-          `API error: ${apiError instanceof Error ? apiError.message : "Failed to connect to AI service"}`
-        );
+    console.log("Starting Gemini API streaming call...");
+
+    const result = streamText({
+      model: google("gemini-2.5-flash"),
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: prompt,
+            },
+            {
+              type: "file",
+              data: Buffer.from(base64, "base64"),
+              mediaType: mimeType as "application/pdf",
+            },
+          ],
+        },
+      ],
+      output: Output.object({
+        name: "Syllabus",
+        description: "Extracted course information and assignments from a syllabus document",
+        schema: SyllabusSchema,
+      }),
+      onError({ error }) {
+        console.error("Stream error:", error);
+        sendProgressUpdate("error", `Stream error: ${error instanceof Error ? error.message : "Unknown error"}`);
+      },
+    });
+
+    sendProgressUpdate("extracting", "Extracting assignments from syllabus...");
+
+    let finalData: SyllabusStructure | null = null;
+
+    // Stream the partial structured output
+    for await (const partialObject of result.partialOutputStream) {
+      const partial = partialObject as Partial<SyllabusStructure>;
+      
+      // Send partial updates to client
+      sendProgressUpdate("extracting", "Parsing syllabus data...", partial);
+      
+      // Keep track of the latest partial data
+      if (partial.course) {
+        finalData = {
+          course: partial.course,
+          assignments: partial.assignments || [],
+        } as SyllabusStructure;
       }
-      throw apiError;
-    }
-
-    sendProgressUpdate("extracting", "Processing AI response...");
-
-    let jsonText = text.trim();
-    const jsonMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (jsonMatch) {
-      jsonText = jsonMatch[1].trim();
-    }
-
-    sendProgressUpdate("validating", "Validating extracted data...");
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(jsonText);
-    } catch (parseError) {
-      if (retryCount === 0) {
-        return extractSyllabusData(
-          base64,
-          mimeType,
-          sendProgressUpdate,
-          1,
-          `Invalid JSON format. The response was not valid JSON.`
-        );
+      
+      if (partial.assignments && partial.assignments.length > 0) {
+        finalData = {
+          course: partial.course || finalData?.course || "",
+          assignments: partial.assignments,
+        } as SyllabusStructure;
       }
-      return {
-        success: false,
-        error: `The syllabus could not be parsed. The AI returned invalid JSON format.\n\nResponse received: ${text.substring(0, 200)}...`,
-      };
     }
 
-    try {
-      const data = SyllabusSchema.parse(parsed) as SyllabusStructure;
-      return { success: true, data };
-    } catch (validationError) {
-      if (validationError instanceof z.ZodError) {
-        const errorMessage = formatValidationErrors(validationError);
-        if (retryCount === 0) {
-          return extractSyllabusData(
-            base64,
-            mimeType,
-            sendProgressUpdate,
-            1,
-            `Validation failed:\n${errorMessage}`
-          );
-        }
-        return {
-          success: false,
-          error: `The syllabus format is incorrect. Please ensure your syllabus contains:\n\n${errorMessage}\n\nRequired fields:\n- course: The course name or code\n- assignments: An array of assignments, each with:\n  - name: Assignment title (required)\n  - due_date: Due date in YYYY-MM-DD format (required)\n  - description: Assignment description (optional)\n  - due_time: Due time in HH:MM format or null (optional)`,
-        };
-      }
-      throw validationError;
-    }
+    // Get the final validated output
+    const textResult = await result;
+    const finalOutput = (await textResult.output) as SyllabusStructure;
+
+    console.log(`Gemini API streaming completed in ${Date.now() - startTime}ms`);
+    console.log(`Parsed ${finalOutput.assignments.length} assignments for course: ${finalOutput.course}`);
+
+    sendProgressUpdate("validating", "Validation complete");
+    return { success: true, data: finalOutput };
   } catch (error) {
-    if (retryCount === 0) {
-      return extractSyllabusData(
-        base64,
-        mimeType,
-        sendProgressUpdate,
-        1,
-        error instanceof Error ? error.message : "Unknown error occurred"
-      );
-    }
+    console.error("Stream extraction error:", error);
     return {
       success: false,
       error: `Failed to process the syllabus: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -235,16 +183,17 @@ export async function POST(request: NextRequest) {
 
         sendProgress(controller, "analyzing", "Sending to AI for analysis...");
 
-        const result = await extractSyllabusData(
+        const result = await streamExtractSyllabusData(
           base64,
           mimeType,
-          (stage, message) => {
+          (stage, message, partialData) => {
             try {
-              sendProgress(controller, stage, message);
+              sendProgress(controller, stage, message, partialData);
             } catch (e) {
               console.error("Error sending progress:", e);
             }
-          }
+          },
+          controller
         );
 
         if (!result.success) {
