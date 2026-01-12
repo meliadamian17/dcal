@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   format,
   startOfMonth,
@@ -24,7 +24,8 @@ import {
   LogOut,
   X,
   Check,
-  Trash2
+  Trash2,
+  Tag
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Assignment, Event } from "@/db/schema";
@@ -37,6 +38,7 @@ import { AddAssignmentModal } from "./AddAssignmentModal";
 import { DayOverviewModal } from "./DayOverviewModal";
 import { signOut } from "next-auth/react";
 import { toggleAssignmentSubmitted, deleteAssignment } from "@/actions/assignment";
+import { getCourseColor, eventColors } from "@/lib/colors";
 
 interface CalendarViewProps {
   currentDate: Date;
@@ -56,14 +58,35 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
   const [isDayOverviewOpen, setIsDayOverviewOpen] = useState(false);
   const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Background route prefetching for adjacent months
+  // This prefetches the Next.js routes, which will trigger server-side data fetching
+  useEffect(() => {
+    const prevMonth = subMonths(currentDate, 1);
+    const nextMonth = addMonths(currentDate, 1);
+    
+    const prevParams = new URLSearchParams();
+    prevParams.set("month", prevMonth.toISOString());
+    router.prefetch(`/?${prevParams.toString()}`);
+
+    const nextParams = new URLSearchParams();
+    nextParams.set("month", nextMonth.toISOString());
+    router.prefetch(`/?${nextParams.toString()}`);
+  }, [currentDate, router]);
+
   // Calendar Logic
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(currentDate);
   const startDate = startOfWeek(monthStart);
   const endDate = endOfWeek(monthEnd);
 
-  const handleDayClick = (day: Date) => {
+  const handleDayClick = (day: Date, e: React.MouseEvent) => {
     if (!isSameMonth(day, monthStart)) return;
+    
+    // Don't open overview if clicking on an interactive element (button, link, etc.)
+    const target = e.target as HTMLElement;
+    if (target.closest('button') || target.closest('a')) {
+      return;
+    }
     
     // Clear any existing timeout
     if (clickTimeoutRef.current) {
@@ -153,17 +176,6 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
     );
   };
 
-  // Get color based on course name
-  const getColor = (courseName: string) => {
-    const hash = courseName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const colors = [
-      { border: '#22d3ee', bg: 'rgba(34,211,238,0.15)' },
-      { border: '#a855f7', bg: 'rgba(168,85,247,0.15)' },
-      { border: '#10b981', bg: 'rgba(16,185,129,0.15)' },
-      { border: '#ec4899', bg: 'rgba(236,72,153,0.15)' },
-    ];
-    return colors[hash % colors.length];
-  };
 
   const cardStyle: React.CSSProperties = {
     background: 'rgba(20, 20, 28, 0.9)',
@@ -364,11 +376,12 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
               const isCurrentMonth = isSameMonth(day, monthStart);
               const isCurrentDay = isToday(day);
               const dayAssignments = getAssignmentsForDay(day);
+              const dayEvents = getEventsForDay(day);
 
               return (
                 <div
                   key={day.toString()}
-                  onClick={() => isCurrentMonth && handleDayClick(day)}
+                  onClick={(e) => isCurrentMonth && handleDayClick(day, e)}
                   onDoubleClick={() => isCurrentMonth && handleDayDoubleClick(day)}
                   onMouseEnter={(e) => {
                     if (isCurrentMonth && !isCurrentDay) {
@@ -416,7 +429,7 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
                     >
                       {format(day, "d")}
                     </span>
-                    {dayAssignments.length > 0 && (
+                    {(dayAssignments.length > 0 || dayEvents.length > 0) && (
                       <span style={{ 
                         fontSize: 'clamp(8px, 1.5vw, 9px)', 
                         fontWeight: 700, 
@@ -426,21 +439,81 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
                         borderRadius: '999px',
                         flexShrink: 0
                       }}>
-                        {dayAssignments.length}
+                        {dayAssignments.length + dayEvents.length}
                       </span>
                     )}
                   </div>
 
-                  {/* Assignments */}
+                  {/* Assignments and Events */}
                   <div className="scrollbar-hide" style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(2px, 0.5vw, 4px)', maxHeight: 'clamp(50px, 10vw, 70px)', overflowY: 'auto', flex: '1 1 auto', minHeight: 0 }}>
+                    {/* Events */}
+                    {dayEvents.map((event) => {
+                      return (
+                        <button
+                          key={event.id}
+                          onClick={(e) => {
+                            e.stopPropagation(); // Prevent cell click from firing
+                            setSelectedDateForOverview(day);
+                            setIsDayOverviewOpen(true);
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = eventColors.bgHover;
+                            e.currentTarget.style.transform = 'translateX(2px)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = eventColors.bg;
+                            e.currentTarget.style.transform = 'translateX(0)';
+                          }}
+                          style={{
+                            width: '100%',
+                            maxWidth: '100%',
+                            textAlign: 'left',
+                            padding: 'clamp(4px, 1vw, 6px)',
+                            borderRadius: '6px',
+                            background: eventColors.bg,
+                            border: 'none',
+                            borderLeft: `3px solid ${eventColors.border}`,
+                            cursor: 'pointer',
+                            position: 'relative',
+                            transition: 'all 0.15s ease',
+                            wordWrap: 'break-word',
+                            overflowWrap: 'break-word',
+                            boxSizing: 'border-box',
+                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <CalendarIcon style={{ width: '10px', height: '10px', color: eventColors.icon, flexShrink: 0 }} />
+                          <div style={{ 
+                            fontSize: 'clamp(9px, 1.8vw, 10px)', 
+                            fontWeight: 600, 
+                            color: 'rgba(255,255,255,0.9)',
+                            wordWrap: 'break-word',
+                            overflowWrap: 'break-word',
+                            whiteSpace: 'normal',
+                            lineHeight: '1.3',
+                            flex: 1,
+                            minWidth: 0
+                          }}>
+                            {event.title}
+                          </div>
+                        </button>
+                      );
+                    })}
+                    {/* Assignments */}
                     {dayAssignments.map((assignment) => {
-                      const color = getColor(assignment.courseName);
+                      const color = getCourseColor(assignment.courseName);
                       const baseBg = assignment.submitted ? 'rgba(16,185,129,0.15)' : color.bg;
                       const hoverBg = assignment.submitted ? 'rgba(16,185,129,0.25)' : color.bg.replace('0.15)', '0.25)');
                       return (
                         <button
                           key={assignment.id}
-                          onClick={() => setSelectedAssignment(assignment)}
+                          onClick={(e) => {
+                            e.stopPropagation(); // Prevent cell click from firing
+                            setSelectedAssignment(assignment);
+                          }}
                           onMouseEnter={(e) => {
                             e.currentTarget.style.background = hoverBg;
                             e.currentTarget.style.transform = 'translateX(2px)';
@@ -595,18 +668,23 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
               </button>
 
               <div style={{ marginBottom: '24px', paddingRight: '32px' }}>
-                <span style={{
-                  display: 'inline-block',
-                  padding: '4px 12px',
-                  borderRadius: '999px',
-                  background: 'rgba(34,211,238,0.2)',
-                  color: '#22d3ee',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  marginBottom: '12px'
-                }}>
-                  {selectedAssignment.courseName}
-                </span>
+                {(() => {
+                  const courseColor = getCourseColor(selectedAssignment.courseName);
+                  return (
+                    <span style={{
+                      display: 'inline-block',
+                      padding: '4px 12px',
+                      borderRadius: '999px',
+                      background: courseColor.bg,
+                      color: courseColor.text,
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      marginBottom: '12px'
+                    }}>
+                      {selectedAssignment.courseName}
+                    </span>
+                  );
+                })()}
                 <h3 style={{ fontSize: '24px', fontWeight: 'bold', color: '#fff', margin: 0, lineHeight: 1.3 }}>
                   {selectedAssignment.assignmentName}
                 </h3>

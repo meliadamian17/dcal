@@ -3,7 +3,7 @@
 import { db } from "@/db";
 import { assignments, type NewAssignment } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 
 export async function toggleAssignmentSubmitted(assignmentId: string) {
   try {
@@ -26,6 +26,7 @@ export async function toggleAssignmentSubmitted(assignmentId: string) {
       .set({ submitted: newStatus })
       .where(eq(assignments.id, assignmentId));
 
+    revalidateTag("assignments");
     revalidatePath("/");
     return { success: true, submitted: newStatus };
   } catch (error) {
@@ -55,6 +56,7 @@ export async function createAssignment(data: Omit<NewAssignment, "id" | "notific
       })
       .returning();
 
+    revalidateTag("assignments");
     revalidatePath("/");
     return { success: true, assignment: newAssignment };
   } catch (error) {
@@ -67,6 +69,7 @@ export async function deleteAssignment(id: string) {
   try {
     await db.delete(assignments).where(eq(assignments.id, id));
 
+    revalidateTag("assignments");
     revalidatePath("/");
     return { success: true };
   } catch (error) {

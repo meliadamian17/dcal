@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, memo } from "react";
 import { format, isWithinInterval, parseISO } from "date-fns";
 import {
   Calendar,
@@ -16,6 +16,7 @@ import {
 import { Event } from "@/db/schema";
 import { deleteEvent } from "@/actions/event";
 import { AddEventModal } from "./AddEventModal";
+import { getTagColor, eventColors } from "@/lib/colors";
 
 interface EventListProps {
   events: Event[];
@@ -23,20 +24,7 @@ interface EventListProps {
 
 const ITEMS_PER_PAGE = 5;
 
-const tagColors = [
-  { bg: "rgba(34,211,238,0.2)", border: "rgba(34,211,238,0.4)", text: "#22d3ee" },
-  { bg: "rgba(168,85,247,0.2)", border: "rgba(168,85,247,0.4)", text: "#a855f7" },
-  { bg: "rgba(16,185,129,0.2)", border: "rgba(16,185,129,0.4)", text: "#10b981" },
-  { bg: "rgba(236,72,153,0.2)", border: "rgba(236,72,153,0.4)", text: "#ec4899" },
-  { bg: "rgba(245,158,11,0.2)", border: "rgba(245,158,11,0.4)", text: "#f59e0b" },
-];
-
-const getTagColor = (tag: string) => {
-  const hash = tag.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return tagColors[hash % tagColors.length];
-};
-
-export function EventList({ events }: EventListProps) {
+function EventListComponent({ events }: EventListProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
@@ -191,14 +179,14 @@ export function EventList({ events }: EventListProps) {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <div
-            style={{
-              width: "4px",
-              height: "24px",
-              borderRadius: "999px",
-              background: "linear-gradient(to bottom, #22d3ee, #10b981)",
-            }}
-          />
+            <div
+              style={{
+                width: "4px",
+                height: "24px",
+                borderRadius: "999px",
+                background: eventColors.border,
+              }}
+            />
           <h2 style={{ fontSize: "20px", fontWeight: "bold", color: "#fff", margin: 0 }}>Events</h2>
           <span
             style={{
@@ -217,19 +205,19 @@ export function EventList({ events }: EventListProps) {
           onClick={() => setIsAddModalOpen(true)}
           type="button"
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = "linear-gradient(135deg, rgba(34,211,238,0.3), rgba(16,185,129,0.3))";
-            e.currentTarget.style.borderColor = "rgba(34,211,238,0.5)";
+            e.currentTarget.style.background = eventColors.bgHover;
+            e.currentTarget.style.borderColor = eventColors.border;
             e.currentTarget.style.transform = "translateY(-1px)";
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = "linear-gradient(135deg, rgba(34,211,238,0.2), rgba(16,185,129,0.2))";
-            e.currentTarget.style.borderColor = "rgba(34,211,238,0.3)";
+            e.currentTarget.style.background = eventColors.bg;
+            e.currentTarget.style.borderColor = eventColors.border;
             e.currentTarget.style.transform = "translateY(0)";
           }}
           style={{
             ...buttonStyle,
-            background: "linear-gradient(135deg, rgba(34,211,238,0.2), rgba(16,185,129,0.2))",
-            border: "1px solid rgba(34,211,238,0.3)",
+            background: eventColors.bg,
+            border: `1px solid ${eventColors.border}`,
             color: "#fff",
           }}
         >
@@ -269,18 +257,18 @@ export function EventList({ events }: EventListProps) {
             type="button"
             onClick={() => setShowDateFilter(!showDateFilter)}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = (startDate || endDate) ? "rgba(34,211,238,0.25)" : "rgba(255,255,255,0.1)";
-              e.currentTarget.style.borderColor = (startDate || endDate) ? "rgba(34,211,238,0.4)" : "rgba(255,255,255,0.2)";
+              e.currentTarget.style.background = (startDate || endDate) ? eventColors.bgHover : "rgba(255,255,255,0.1)";
+              e.currentTarget.style.borderColor = (startDate || endDate) ? eventColors.border : "rgba(255,255,255,0.2)";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = (startDate || endDate) ? "rgba(34,211,238,0.15)" : "rgba(255,255,255,0.05)";
-              e.currentTarget.style.borderColor = (startDate || endDate) ? "rgba(34,211,238,0.3)" : "rgba(255,255,255,0.1)";
+              e.currentTarget.style.background = (startDate || endDate) ? eventColors.bg : "rgba(255,255,255,0.05)";
+              e.currentTarget.style.borderColor = (startDate || endDate) ? eventColors.border : "rgba(255,255,255,0.1)";
             }}
             style={{
               ...buttonStyle,
-              background: (startDate || endDate) ? "rgba(34,211,238,0.15)" : buttonStyle.background,
-              borderColor: (startDate || endDate) ? "rgba(34,211,238,0.3)" : "rgba(255,255,255,0.1)",
-              color: (startDate || endDate) ? "#22d3ee" : "#a1a1aa",
+              background: (startDate || endDate) ? eventColors.bg : buttonStyle.background,
+              borderColor: (startDate || endDate) ? eventColors.border : "rgba(255,255,255,0.1)",
+              color: (startDate || endDate) ? eventColors.text : "#a1a1aa",
             }}
           >
             <Calendar style={{ width: "16px", height: "16px" }} />
@@ -422,13 +410,13 @@ export function EventList({ events }: EventListProps) {
                 height: "64px",
                 margin: "0 auto 16px",
                 borderRadius: "16px",
-                background: "rgba(34,211,238,0.1)",
+                background: eventColors.bg,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <Calendar style={{ width: "28px", height: "28px", color: "#22d3ee" }} />
+              <Calendar style={{ width: "28px", height: "28px", color: eventColors.icon }} />
             </div>
             <h3 style={{ color: "#fff", fontSize: "16px", fontWeight: 600, margin: "0 0 8px 0" }}>
               {hasActiveFilters ? "No matching events" : "No upcoming events"}
@@ -625,3 +613,6 @@ export function EventList({ events }: EventListProps) {
     </div>
   );
 }
+
+// Memoize to prevent unnecessary re-renders when props haven't changed
+export const EventList = memo(EventListComponent);

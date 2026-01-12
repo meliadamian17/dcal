@@ -9,6 +9,7 @@ import { toggleAssignmentSubmitted, deleteAssignment } from "@/actions/assignmen
 import { deleteEvent } from "@/actions/event";
 import { AddAssignmentModal } from "./AddAssignmentModal";
 import { AddEventModal } from "./AddEventModal";
+import { getCourseColor, eventColors, getTagColor } from "@/lib/colors";
 
 interface DayOverviewModalProps {
   isOpen: boolean;
@@ -17,32 +18,6 @@ interface DayOverviewModalProps {
   assignments: Assignment[];
   events: Event[];
 }
-
-// Get color based on course name (reused from CalendarView)
-const getColor = (courseName: string) => {
-  const hash = courseName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const colors = [
-    { border: '#22d3ee', bg: 'rgba(34,211,238,0.15)' },
-    { border: '#a855f7', bg: 'rgba(168,85,247,0.15)' },
-    { border: '#10b981', bg: 'rgba(16,185,129,0.15)' },
-    { border: '#ec4899', bg: 'rgba(236,72,153,0.15)' },
-  ];
-  return colors[hash % colors.length];
-};
-
-// Tag colors (reused from EventList)
-const tagColors = [
-  { bg: "rgba(34,211,238,0.2)", border: "rgba(34,211,238,0.4)", text: "#22d3ee" },
-  { bg: "rgba(168,85,247,0.2)", border: "rgba(168,85,247,0.4)", text: "#a855f7" },
-  { bg: "rgba(16,185,129,0.2)", border: "rgba(16,185,129,0.4)", text: "#10b981" },
-  { bg: "rgba(236,72,153,0.2)", border: "rgba(236,72,153,0.4)", text: "#ec4899" },
-  { bg: "rgba(245,158,11,0.2)", border: "rgba(245,158,11,0.4)", text: "#f59e0b" },
-];
-
-const getTagColor = (tag: string) => {
-  const hash = tag.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return tagColors[hash % tagColors.length];
-};
 
 export function DayOverviewModal({
   isOpen,
@@ -279,7 +254,7 @@ export function DayOverviewModal({
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                       {dayAssignments.map((assignment) => {
-                        const color = getColor(assignment.courseName);
+                        const color = getCourseColor(assignment.courseName);
                         const baseBg = assignment.submitted
                           ? "rgba(16,185,129,0.15)"
                           : color.bg;
@@ -508,11 +483,11 @@ export function DayOverviewModal({
                         style={{
                           padding: "10px",
                           borderRadius: "10px",
-                          background: "linear-gradient(135deg, rgba(34,211,238,0.2), rgba(16,185,129,0.2))",
-                          border: "1px solid rgba(34,211,238,0.2)",
+                          background: eventColors.bg,
+                          border: `1px solid ${eventColors.border}`,
                         }}
                       >
-                        <Calendar style={{ width: "20px", height: "20px", color: "#22d3ee" }} />
+                        <Calendar style={{ width: "20px", height: "20px", color: eventColors.icon }} />
                       </div>
                       <h3 style={{ fontSize: "18px", fontWeight: 600, color: "#fff", margin: 0 }}>
                         Events
@@ -532,13 +507,13 @@ export function DayOverviewModal({
                     <button
                       onClick={() => setIsAddEventOpen(true)}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "rgba(34,211,238,0.2)";
-                        e.currentTarget.style.borderColor = "rgba(34,211,238,0.4)";
+                        e.currentTarget.style.background = eventColors.bgHover;
+                        e.currentTarget.style.borderColor = eventColors.border;
                         e.currentTarget.style.transform = "translateY(-1px)";
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "rgba(34,211,238,0.1)";
-                        e.currentTarget.style.borderColor = "rgba(34,211,238,0.3)";
+                        e.currentTarget.style.background = eventColors.bg;
+                        e.currentTarget.style.borderColor = eventColors.border;
                         e.currentTarget.style.transform = "translateY(0)";
                       }}
                       style={{
@@ -547,9 +522,9 @@ export function DayOverviewModal({
                         gap: "6px",
                         padding: "8px 12px",
                         borderRadius: "8px",
-                        background: "rgba(34,211,238,0.1)",
-                        border: "1px solid rgba(34,211,238,0.3)",
-                        color: "#22d3ee",
+                        background: eventColors.bg,
+                        border: `1px solid ${eventColors.border}`,
+                        color: eventColors.text,
                         cursor: "pointer",
                         transition: "all 0.2s ease",
                         fontSize: "13px",
@@ -584,8 +559,8 @@ export function DayOverviewModal({
                             style={{
                               padding: "16px",
                               borderRadius: "12px",
-                              background: "rgba(34,211,238,0.05)",
-                              border: "1px solid rgba(34,211,238,0.2)",
+                              background: eventColors.bg,
+                              border: `1px solid ${eventColors.border}`,
                             }}
                           >
                             <div

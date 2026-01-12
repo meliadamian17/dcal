@@ -4,8 +4,10 @@ import { CalendarView } from "@/components/CalendarView";
 import { parseISO } from "date-fns";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+import { prefetchAdjacentMonths } from "@/lib/prefetch";
 
-export const dynamic = "force-dynamic";
+// Enable ISR with 60 second revalidation
+export const revalidate = 60;
 
 function LoadingState() {
   return (
@@ -65,6 +67,13 @@ export default async function DashboardPage({
     getAllAssignments(),
     getAllEvents(),
   ]);
+
+  // Background prefetch adjacent months for faster navigation
+  // Don't await - let it run in background
+  prefetchAdjacentMonths(currentDate).catch((error) => {
+    // Silently handle errors - prefetching is best effort
+    console.error("Background prefetch error:", error);
+  });
 
   return (
     <main style={{ minHeight: '100vh', position: 'relative' }}>
