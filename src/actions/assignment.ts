@@ -26,7 +26,7 @@ export async function toggleAssignmentSubmitted(assignmentId: string) {
       .set({ submitted: newStatus })
       .where(eq(assignments.id, assignmentId));
 
-    revalidateTag("assignments");
+    revalidateTag("assignments", "max");
     revalidatePath("/");
     return { success: true, submitted: newStatus };
   } catch (error) {
@@ -56,7 +56,7 @@ export async function createAssignment(data: Omit<NewAssignment, "id" | "notific
       })
       .returning();
 
-    revalidateTag("assignments");
+    revalidateTag("assignments", "max");
     revalidatePath("/");
     return { success: true, assignment: newAssignment };
   } catch (error) {
@@ -69,7 +69,7 @@ export async function deleteAssignment(id: string) {
   try {
     await db.delete(assignments).where(eq(assignments.id, id));
 
-    revalidateTag("assignments");
+    revalidateTag("assignments", "max");
     revalidatePath("/");
     return { success: true };
   } catch (error) {
