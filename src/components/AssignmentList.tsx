@@ -18,6 +18,7 @@ import {
 import { Assignment } from "@/db/schema";
 import { toggleAssignmentSubmitted, deleteAssignment } from "@/actions/assignment";
 import { AddAssignmentModal } from "./AddAssignmentModal";
+import { getCourseColor } from "@/lib/colors";
 
 interface AssignmentListProps {
   assignments: Assignment[];
@@ -177,17 +178,6 @@ export function AssignmentList({ assignments }: AssignmentListProps) {
 
   const hasActiveFilters = searchQuery || startDate || endDate || selectedCourses.size !== courses.length;
 
-  // Get color based on course name
-  const getColor = (courseName: string) => {
-    const hash = courseName.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const colors = [
-      { border: "#22d3ee", bg: "rgba(34,211,238,0.15)", text: "#22d3ee" },
-      { border: "#a855f7", bg: "rgba(168,85,247,0.15)", text: "#a855f7" },
-      { border: "#10b981", bg: "rgba(16,185,129,0.15)", text: "#10b981" },
-      { border: "#ec4899", bg: "rgba(236,72,153,0.15)", text: "#ec4899" },
-    ];
-    return colors[hash % colors.length];
-  };
 
   const cardStyle: React.CSSProperties = {
     background: "rgba(20, 20, 28, 0.9)",
@@ -468,7 +458,7 @@ export function AssignmentList({ assignments }: AssignmentListProps) {
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
             {courses.map((course) => {
-              const color = getColor(course);
+              const color = getCourseColor(course);
               const isSelected = selectedCourses.has(course);
               return (
                 <button
@@ -520,7 +510,7 @@ export function AssignmentList({ assignments }: AssignmentListProps) {
       {/* Assignments by Course */}
       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
         {Object.entries(assignmentsByCourse).map(([course, courseAssignments]) => {
-          const color = getColor(course);
+          const color = getCourseColor(course);
           const isExpanded = expandedCourses.has(course);
 
           return (

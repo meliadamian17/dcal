@@ -3,7 +3,7 @@
 import { db } from "@/db";
 import { events, type NewEvent } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 
 export async function createEvent(data: Omit<NewEvent, "id" | "createdAt">) {
   try {
@@ -17,6 +17,7 @@ export async function createEvent(data: Omit<NewEvent, "id" | "createdAt">) {
       })
       .returning();
 
+    revalidateTag("events", "max");
     revalidatePath("/");
     return { success: true, event: newEvent };
   } catch (error) {
@@ -36,6 +37,7 @@ export async function updateEvent(
       .where(eq(events.id, id))
       .returning();
 
+    revalidateTag("events", "max");
     revalidatePath("/");
     return { success: true, event: updatedEvent };
   } catch (error) {
@@ -48,6 +50,7 @@ export async function deleteEvent(id: string) {
   try {
     await db.delete(events).where(eq(events.id, id));
 
+    revalidateTag("events", "max");
     revalidatePath("/");
     return { success: true };
   } catch (error) {
