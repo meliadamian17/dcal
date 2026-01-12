@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   format,
   startOfMonth,
@@ -34,6 +34,7 @@ import { EventList } from "./EventList";
 import { AddItemModal } from "./AddItemModal";
 import { AddEventModal } from "./AddEventModal";
 import { AddAssignmentModal } from "./AddAssignmentModal";
+import { DayOverviewModal } from "./DayOverviewModal";
 import { signOut } from "next-auth/react";
 import { toggleAssignmentSubmitted, deleteAssignment } from "@/actions/assignment";
 
@@ -51,8 +52,44 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
   const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
   const [isAddEventModalOpen, setIsAddEventModalOpen] = useState(false);
   const [isAddAssignmentModalOpen, setIsAddAssignmentModalOpen] = useState(false);
+  const [selectedDateForOverview, setSelectedDateForOverview] = useState<Date | null>(null);
+  const [isDayOverviewOpen, setIsDayOverviewOpen] = useState(false);
+  const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Calendar Logic
+  const monthStart = startOfMonth(currentDate);
+  const monthEnd = endOfMonth(currentDate);
+  const startDate = startOfWeek(monthStart);
+  const endDate = endOfWeek(monthEnd);
+
+  const handleDayClick = (day: Date) => {
+    if (!isSameMonth(day, monthStart)) return;
+    
+    // Clear any existing timeout
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+    }
+    
+    // Set a timeout to handle single click (after double click delay)
+    clickTimeoutRef.current = setTimeout(() => {
+      setSelectedDateForOverview(day);
+      setIsDayOverviewOpen(true);
+    }, 200);
+  };
 
   const handleDayDoubleClick = (day: Date) => {
+    if (!isSameMonth(day, monthStart)) return;
+    
+    // Clear the single click timeout
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+      clickTimeoutRef.current = null;
+    }
+    
+    // Close day overview if open
+    setIsDayOverviewOpen(false);
+    
+    // Open add item modal
     setSelectedDateForAdd(day);
     setIsAddItemModalOpen(true);
   };
@@ -83,12 +120,6 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
     await deleteAssignment(assignmentId);
   };
 
-  // Calendar Logic
-  const monthStart = startOfMonth(currentDate);
-  const monthEnd = endOfMonth(currentDate);
-  const startDate = startOfWeek(monthStart);
-  const endDate = endOfWeek(monthEnd);
-
   const calendarDays = eachDayOfInterval({
     start: startDate,
     end: endDate,
@@ -113,6 +144,12 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
   const getAssignmentsForDay = (day: Date) => {
     return assignments.filter((assignment) =>
       isSameDay(new Date(assignment.dueDateTime), day)
+    );
+  };
+
+  const getEventsForDay = (day: Date) => {
+    return events.filter((event) =>
+      isSameDay(new Date(event.dateTime), day)
     );
   };
 
@@ -141,9 +178,9 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
   };
 
   return (
-    <div style={{ padding: '16px', maxWidth: '1600px', margin: '0 auto' }}>
+    <div style={{ padding: 'clamp(8px, 2vw, 16px)', maxWidth: '1600px', margin: '0 auto' }}>
       {/* Header Section */}
-      <header style={{ ...cardStyle, padding: '16px 20px', marginBottom: '20px' }}>
+      <header style={{ ...cardStyle, padding: 'clamp(12px, 2vw, 16px) clamp(12px, 2.5vw, 20px)', marginBottom: 'clamp(12px, 2.5vw, 20px)' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ 
@@ -155,10 +192,10 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
               <CalendarIcon style={{ width: '20px', height: '20px', color: '#22d3ee' }} />
             </div>
             <div>
-              <h1 style={{ fontSize: '22px', fontWeight: 'bold', color: '#fff', margin: 0 }}>
+              <h1 style={{ fontSize: 'clamp(18px, 4vw, 22px)', fontWeight: 'bold', color: '#fff', margin: 0 }}>
                 {format(currentDate, "MMMM yyyy")}
               </h1>
-              <p style={{ fontSize: '12px', color: '#71717a', margin: '2px 0 0 0' }}>
+              <p style={{ fontSize: 'clamp(10px, 2vw, 12px)', color: '#71717a', margin: '2px 0 0 0' }}>
                 Academic Schedule
               </p>
             </div>
@@ -295,9 +332,9 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
         </div>
       </header>
 
-      {/* Calendar Grid - Responsive with horizontal scroll on mobile */}
-      <div style={{ ...cardStyle, padding: '16px', marginBottom: '20px', overflowX: 'auto' }}>
-        <div style={{ minWidth: '700px' }}>
+      {/* Calendar Grid - Responsive */}
+      <div style={{ ...cardStyle, padding: 'clamp(8px, 2vw, 16px)', marginBottom: 'clamp(12px, 2.5vw, 20px)', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <div style={{ minWidth: 'min(100%, 700px)' }}>
           {/* Days Header */}
           <div style={{ 
             display: 'grid', 
@@ -309,7 +346,7 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
             {weekDays.map((day) => (
               <div key={day} style={{ textAlign: 'center' }}>
                 <span style={{ 
-                  fontSize: '11px', 
+                  fontSize: 'clamp(9px, 1.8vw, 11px)', 
                   fontWeight: 600, 
                   color: '#71717a',
                   textTransform: 'uppercase',
@@ -322,7 +359,7 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
           </div>
 
           {/* Days Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
             {calendarDays.map((day) => {
               const isCurrentMonth = isSameMonth(day, monthStart);
               const isCurrentDay = isToday(day);
@@ -331,6 +368,7 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
               return (
                 <div
                   key={day.toString()}
+                  onClick={() => isCurrentMonth && handleDayClick(day)}
                   onDoubleClick={() => isCurrentMonth && handleDayDoubleClick(day)}
                   onMouseEnter={(e) => {
                     if (isCurrentMonth && !isCurrentDay) {
@@ -345,9 +383,9 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
                     }
                   }}
                   style={{
-                    minHeight: '100px',
-                    padding: '8px',
-                    borderRadius: '10px',
+                    minHeight: 'clamp(80px, 12vw, 100px)',
+                    padding: 'clamp(4px, 1vw, 8px)',
+                    borderRadius: '8px',
                     background: isCurrentDay 
                       ? 'rgba(34,211,238,0.08)' 
                       : 'rgba(255,255,255,0.02)',
@@ -357,31 +395,36 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
                     opacity: isCurrentMonth ? 1 : 0.3,
                     boxShadow: isCurrentDay ? '0 0 20px rgba(34,211,238,0.1)' : 'none',
                     cursor: isCurrentMonth ? 'pointer' : 'default',
-                    transition: 'all 0.2s ease'
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    boxSizing: 'border-box'
                   }}
                 >
                   {/* Date Number */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'clamp(4px, 0.8vw, 6px)', flexShrink: 0 }}>
                     <span
                       style={{
-                        fontSize: '13px',
+                        fontSize: 'clamp(11px, 2vw, 13px)',
                         fontWeight: 600,
                         color: isCurrentDay ? '#22d3ee' : '#a1a1aa',
                         background: isCurrentDay ? 'rgba(34,211,238,0.2)' : 'transparent',
-                        padding: isCurrentDay ? '2px 6px' : '0',
-                        borderRadius: '999px'
+                        padding: isCurrentDay ? '2px clamp(4px, 1vw, 6px)' : '0',
+                        borderRadius: '999px',
+                        lineHeight: '1.2'
                       }}
                     >
                       {format(day, "d")}
                     </span>
                     {dayAssignments.length > 0 && (
                       <span style={{ 
-                        fontSize: '9px', 
+                        fontSize: 'clamp(8px, 1.5vw, 9px)', 
                         fontWeight: 700, 
                         color: '#71717a',
                         background: 'rgba(255,255,255,0.05)',
-                        padding: '2px 5px',
-                        borderRadius: '999px'
+                        padding: '2px clamp(3px, 0.8vw, 5px)',
+                        borderRadius: '999px',
+                        flexShrink: 0
                       }}>
                         {dayAssignments.length}
                       </span>
@@ -389,7 +432,7 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
                   </div>
 
                   {/* Assignments */}
-                  <div className="scrollbar-hide" style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '70px', overflowY: 'auto' }}>
+                  <div className="scrollbar-hide" style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(2px, 0.5vw, 4px)', maxHeight: 'clamp(50px, 10vw, 70px)', overflowY: 'auto', flex: '1 1 auto', minHeight: 0 }}>
                     {dayAssignments.map((assignment) => {
                       const color = getColor(assignment.courseName);
                       const baseBg = assignment.submitted ? 'rgba(16,185,129,0.15)' : color.bg;
@@ -408,8 +451,9 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
                           }}
                           style={{
                             width: '100%',
+                            maxWidth: '100%',
                             textAlign: 'left',
-                            padding: '6px',
+                            padding: 'clamp(4px, 1vw, 6px)',
                             borderRadius: '6px',
                             background: baseBg,
                             border: 'none',
@@ -417,7 +461,11 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
                             cursor: 'pointer',
                             opacity: assignment.submitted ? 0.7 : 1,
                             position: 'relative',
-                            transition: 'all 0.15s ease'
+                            transition: 'all 0.15s ease',
+                            wordWrap: 'break-word',
+                            overflowWrap: 'break-word',
+                            boxSizing: 'border-box',
+                            flexShrink: 0
                           }}
                         >
                           {assignment.submitted && (
@@ -431,28 +479,34 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
                               background: '#10b981',
                               display: 'flex',
                               alignItems: 'center',
-                              justifyContent: 'center'
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                              zIndex: 1
                             }}>
                               <Check style={{ width: '8px', height: '8px', color: '#fff' }} />
                             </div>
                           )}
                           <div style={{ 
-                            fontSize: '10px', 
+                            fontSize: 'clamp(9px, 1.8vw, 10px)', 
                             fontWeight: 600, 
                             color: assignment.submitted ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.9)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            textDecoration: assignment.submitted ? 'line-through' : 'none'
+                            wordWrap: 'break-word',
+                            overflowWrap: 'break-word',
+                            whiteSpace: 'normal',
+                            lineHeight: '1.3',
+                            textDecoration: assignment.submitted ? 'line-through' : 'none',
+                            paddingRight: assignment.submitted ? 'clamp(12px, 2vw, 16px)' : '0'
                           }}>
                             {assignment.courseName}
                           </div>
                           <div style={{ 
-                            fontSize: '9px', 
+                            fontSize: 'clamp(8px, 1.6vw, 9px)', 
                             color: assignment.submitted ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.5)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap'
+                            wordWrap: 'break-word',
+                            overflowWrap: 'break-word',
+                            whiteSpace: 'normal',
+                            lineHeight: '1.3',
+                            marginTop: 'clamp(1px, 0.3vw, 2px)'
                           }}>
                             {assignment.assignmentName}
                           </div>
@@ -767,6 +821,18 @@ export function CalendarView({ currentDate, assignments, events }: CalendarViewP
           setSelectedDateForAdd(null);
         }}
         initialDate={selectedDateForAdd}
+      />
+
+      {/* Day Overview Modal */}
+      <DayOverviewModal
+        isOpen={isDayOverviewOpen}
+        onClose={() => {
+          setIsDayOverviewOpen(false);
+          setSelectedDateForOverview(null);
+        }}
+        selectedDate={selectedDateForOverview}
+        assignments={assignments}
+        events={events}
       />
 
       {/* Lists Section - Two Column Layout on larger screens */}
